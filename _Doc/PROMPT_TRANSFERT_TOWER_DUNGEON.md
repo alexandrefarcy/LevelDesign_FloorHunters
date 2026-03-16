@@ -1,4 +1,4 @@
-# PROMPT DE TRANSFERT — Tower Dungeon Level Editor (v1)
+# PROMPT DE TRANSFERT — Tower Dungeon Level Editor (v2)
 
 ---
 
@@ -15,38 +15,31 @@ Tu reprends un projet Python en cours de développement. Avant de coder quoi que
 
 ---
 
-## 📦 NOTE DÉVELOPPEUR — INSTALLATION SUR UN NOUVEAU PC
+## 📦 INSTALLATION SUR UN NOUVEAU PC
 
-### Prérequis système
-- **Python 3.12+** (vérifier : `python --version`)
+### Prérequis
+- **Python 3.12+**
 - **pip** à jour : `python -m pip install --upgrade pip`
 
-### Installation des dépendances
-
+### Dépendances
 ```bash
-pip install PyQt6 networkx jsonschema pytest pytest-qt
+pip install PyQt6 networkx jsonschema
 ```
 
-### Détail des packages
+| Package | Usage |
+|---------|-------|
+| `PyQt6` 6.4+ | Interface graphique |
+| `networkx` 3.0+ | MST de Kruskal (génération procédurale) |
+| `jsonschema` 4.0+ | Validation schéma JSON à l'import |
 
-| Package | Version min | Usage dans le projet |
-|---------|-------------|----------------------|
-| `PyQt6` | 6.4+ | Interface graphique complète (fenêtre, canvas, toolbar) |
-| `networkx` | 3.0+ | MST de Kruskal (génération procédurale des couloirs) |
-| `jsonschema` | 4.0+ | Validation schéma JSON à l'import |
-| `pytest` | 7.0+ | Tests unitaires core/ |
-| `pytest-qt` | 4.0+ | Tests intégration UI PyQt6 |
-
-> **Note :** `json`, `os`, `sys`, `copy`, `random`, `math`, `enum`, `dataclasses` sont des modules stdlib Python — pas besoin de les installer.
-
-### Vérification rapide
-```bash
-python -c "import PyQt6; import networkx; import jsonschema; print('OK')"
-```
-
-### Lancer l'application en développement
+### Lancer l'application
 ```bash
 python app.py
+```
+
+### Lancer les tests
+```bash
+python -m unittest discover -s tests -v
 ```
 
 ---
@@ -57,83 +50,83 @@ python app.py
 
 - L'utilisateur dessine manuellement des salles sur une grille 72×72
 - Un générateur procédural crée automatiquement les couloirs, murs et salles de transition
-- Un futur système de peuplement placera les entités (ennemis, boss, coffres, pièges…)
-- Export/import JSON pour intégration dans le moteur de jeu
-- Interface desktop ergonomique, **pas tactile** (contrairement au projet React original)
-- Sauvegarde automatique locale — un seul utilisateur, tout local, pas d'auth
+- Export/import JSON pour intégration dans le moteur de jeu **Godot**
+- Interface desktop, un seul utilisateur, tout local
 
 ---
 
 ## 🏗️ ARCHITECTURE DES MODULES
 
 ```
-app.py                          <- Point d'entrée, instanciation QApplication
+app.py                          ← Point d'entrée
 core/
-  grid.py                       <- Modèle de données : Cell, Floor, GridModel
-  generator.py                  <- Génération procédurale (flood fill + MST Kruskal + couloirs)
-  populator.py                  <- Peuplement d'entités (Phase 5 — futur)
-  algorithms.py                 <- Utilitaires : flood fill, MST, L-path
-io/
-  serializer.py                 <- Import/export JSON + validation jsonschema
-  autosave.py                   <- Sauvegarde automatique (QTimer 30s)
+  __init__.py
+  grid.py                       ← Modèle : Cell, Floor, GridModel, CellType
+  generator.py                  ← Génération procédurale (à faire — Phase 4e)
+  algorithms.py                 ← Flood fill, MST, L-path (à faire — Phase 4e)
+  populator.py                  ← Peuplement entités (futur — Phase 6)
+serialization/
+  __init__.py
+  serializer.py                 ← Import/export JSON + validation jsonschema
+  autosave.py                   ← Sauvegarde auto QTimer (à faire — Phase 4h)
 ui/
-  main_window.py                <- FenetrePrincipale + orchestration
-  editor_view.py                <- Canvas QGraphicsView/QGraphicsScene — rendu, zoom, pan
-  toolbar.py                    <- Palette d'outils + sélection d'étage
-  dialogs.py                    <- Dialogues : génération, peuplement, import/export
-assets/
-  default_sprites/              <- Sprites par défaut (PNG 32×32)
+  __init__.py
+  main_window.py                ← Fenêtre principale + orchestration
+  editor_view.py                ← Canvas QGraphicsView — rendu, zoom, pan, dessin
+  toolbar.py                    ← (fusionné dans main_window pour l'instant)
+  dialogs.py                    ← Dialogues génération/import/export (à faire)
 tests/
-  test_grid.py
-  test_generator.py
-  test_serializer.py
+  __init__.py
+  test_grid.py                  ← 36 tests unitaires ✅
+  test_serializer.py            ← 19 tests unitaires ✅
 ```
+
+> ⚠️ Le dossier s'appelait `io/` dans les premières versions — il a été renommé en `serialization/` pour éviter le conflit avec le module stdlib Python `io`.
 
 ---
 
 ## 📐 SYSTÈME DE GRILLE
 
-- **Dimensions :** 72×72 cellules (5 184 cellules totales)
-- **Coordonnées centrées :** (0,0) au centre de la grille
-  - X : de -36 (gauche) à +36 (droite)
-  - Y : de -36 (bas) à +36 (haut)
-- **Cellules carrées** — jamais de déformation
-- **Rendu :** QGraphicsView + QGraphicsScene — une QPixmap par étage, invalidation partielle à chaque modification
-- **NE PAS** instancier 5 184 widgets Qt pour la grille — canvas unique obligatoire
+- **Dimensions :** 72×72 cellules
+- **Coordonnées centrées :** (0,0) au centre
+  - x ∈ [-36, 35], y ∈ [-36, 35]
+  - x croît vers la droite, y croît vers le haut
+- **Formule de conversion :**
+  - `row = HALF - 1 - y` → y=35 → row=0, y=-36 → row=71
+  - `col = HALF + x`     → x=-36 → col=0, x=35 → col=71
+  - Centre (0,0) → index (row=35, col=36)
+- **Rendu :** QGraphicsView + QGraphicsScene, une QPixmap par étage
+- **NE PAS** instancier 5 184 widgets Qt — canvas unique obligatoire
 
-```
-(-36, 36) ←──── (0, 36) ────→ (36, 36)
-    │             │                │
-    │        STAIRS DOWN           │
-    │           (0, 0)             │
-    │             │                │
-(-36,-36) ←── (0,-36) ────→ (36,-36)
-```
+### Signification de (0,0) pour Godot
+La case (0,0) est **l'escalier d'entrée du niveau** (`STAIRS_DOWN`).
+Elle est générée automatiquement par le générateur procédural — l'utilisateur ne la pose pas manuellement.
+Le moteur Godot utilise cette case comme référence de positionnement.
 
 ---
 
 ## 🎨 TYPES DE CELLULES (CellType enum)
 
-| Valeur enum | Emoji | Nom affiché | Notes |
-|------------|-------|-------------|-------|
-| `EMPTY` | — | Vide | Cellule par défaut |
-| `GROUND` | 🟫 | Sol | Praticable, base de dessin manuel |
-| `WALL` | 🧱 | Mur | Généré automatiquement en bordure |
-| `ENEMY` | 👾 | Ennemi | Entité standard |
-| `BOSS` | 👹 | Boss | Salle isolée ou éloignée du spawn |
-| `TREASURE` | 💎 | Trésor | Salle de transition ou coin |
-| `TRAP` | 🔥 | Piège | Couloirs étroits |
-| `CAMP` | ⛺ | Camp | Salle sécurisée |
-| `STAIRS_DOWN` | 🪜 | Escalier bas | **Forcé à (0,0)** — généré automatiquement |
-| `STAIRS_UP` | 🪜 | Escalier haut | Placé manuellement, salle isolée |
-| `SPAWN` | 📍 | Spawn | Point d'apparition |
-| `ERASER` | 🗑️ | Gomme | Outil UI uniquement, pas une cellule |
+| Valeur enum | Rendu éditeur | Nom | Notes |
+|------------|---------------|-----|-------|
+| `EMPTY` | Couleur sombre | Vide | Défaut |
+| `GROUND` | Couleur marron | Sol | Dessin manuel, base des salles |
+| `WALL` | Couleur grise | Mur | Généré automatiquement |
+| `ENEMY` | **Icône** | Ennemi | — |
+| `BOSS` | **Icône** | Boss | Salle isolée |
+| `TREASURE` | **Icône** | Trésor | Salle transition ou coin |
+| `TRAP` | **Icône** | Piège | Couloirs étroits |
+| `CAMP` | **Icône** | Camp | Salle sécurisée |
+| `STAIRS_DOWN` | **Icône + marqueur (0,0)** | Escalier bas | **Forcé à (0,0)** |
+| `STAIRS_UP` | **Icône** | Escalier haut | Salle isolée |
+| `SPAWN` | **Icône** | Spawn | Point d'apparition |
+
+> **Règle de rendu :** GROUND et WALL = couleur pleine. Tous les autres types = icône Unicode centrée sur la cellule.
+> La case (0,0) affiche un **marqueur visuel spécifique** (croix ou highlight) pour indiquer l'origine du repère.
 
 ---
 
-## 💾 FORMAT JSON D'EXPORT
-
-> **Ce schéma est figé — ne pas modifier sans valider avec l'utilisateur.**
+## 💾 FORMAT JSON D'EXPORT (figé — version 1)
 
 ```json
 {
@@ -153,99 +146,73 @@ tests/
 }
 ```
 
-- `grid` est une liste de **72 lignes × 72 colonnes** (index [0][0] = coin haut-gauche)
-- `type` = valeur string de l'enum CellType en minuscules
-- `custom_image` = chemin relatif vers sprite personnalisé, ou `null`
-- Validation à l'import via `jsonschema` — fichier invalide = refus + message d'erreur, **jamais** de corruption silencieuse
+- `grid` : 72 lignes × 72 colonnes, index [0][0] = coin haut-gauche
+- `type` : valeur string de l'enum en minuscules
+- `custom_image` : chemin relatif ou `null`
+- Validation jsonschema obligatoire à l'import
 
 ---
 
-## ⚙️ ALGORITHME DE GÉNÉRATION PROCÉDURALE
-
-### Workflow général
+## ⚙️ ALGORITHME DE GÉNÉRATION PROCÉDURALE (Phase 4e — non commencée)
 
 ```
-1. Détection des salles (flood fill sur cellules GROUND)
-2. Vérification : chaque salle >= 6×6 cases
-3. Calcul des centres géométriques de chaque salle
-4. MST de Kruskal (networkx.minimum_spanning_tree) sur les centres
-5. Ajout connexions supplémentaires aléatoires (30% de chance par paire)
-6. Tracé des couloirs en L entre chaque paire de salles connectées
-7. Création salles de transition (5×5 à 9×9) si couloir > 9 cases
-8. Génération des murs extérieurs (bordure de 1 case autour de tout GROUND + couloirs)
-9. Placement STAIRS_DOWN forcé à (0,0)
+1. Flood fill itératif → détection salles contiguës (GROUND)
+2. Vérification taille min 6×6
+3. MST Kruskal (networkx) sur centres géométriques
+4. +30% connexions aléatoires supplémentaires
+5. Tracé couloirs en L
+6. Salles de transition 5×5 à 9×9 (25 tentatives max)
+7. Murs extérieurs autour de tout
+8. STAIRS_DOWN forcé à (0,0)
 ```
 
-### Règles salles de transition
-
-- Tentatives : 5 positions (milieu, 1/3, 2/3, 1/4, 3/4) × 5 tailles (5×5 à 9×9) = 25 max
-- ❌ Pas de superposition avec salle manuelle
-- ❌ Distance minimum 3 cases avec toute salle manuelle
-- ✅ Si aucune position valide → couloir simple sans salle de transition
-
-### Règle "Salle Montée" (STAIRS_UP)
-
-- La salle contenant STAIRS_UP est **isolée** : une seule connexion vers la salle la plus proche
-- Les autres salles ont entre 1 et 4 connexions
-
-### Connexion en L
-
-```
-De A(ax, ay) à B(bx, by) :
-  Segment 1 : (ax, ay) → (bx, ay)  [horizontal]
-  Segment 2 : (bx, ay) → (bx, by)  [vertical]
-```
+**Règle salle STAIRS_UP :** isolée, une seule connexion vers la salle la plus proche.
+**Couloir en L :** `(ax,ay)→(bx,ay)→(bx,by)`
+**Transition :** ❌ superposition salle manuelle, ❌ distance < 3 cases
 
 ---
 
 ## 🔧 DÉCISIONS TECHNIQUES ARRÊTÉES
 
-> Ces choix sont **validés et définitifs**. Ne pas remettre en question.
+> Validées et définitives — ne pas remettre en question.
 
-1. **QGraphicsView + QGraphicsScene** pour le canvas (pas de QOpenGLWidget sauf problème de performance avéré)
-2. **networkx.minimum_spanning_tree** pour le MST (Kruskal)
-3. **Flood fill récursif** (ou itératif si stack overflow sur grande salle) pour la détection de salles contiguës
-4. **JSON + jsonschema** pour la persistance jusqu'à une éventuelle migration SQLite (non planifiée)
-5. **QTimer 30s** pour la sauvegarde automatique vers `~/.tower_dungeon/autosave.json`
-6. **Une QPixmap par étage** mis en cache, invalidation partielle à chaque modification de cellule
-7. **Coordonnées internes** : index tableau [row][col] → conversion vers (x,y) centrés dans l'affichage uniquement
-8. **Upload d'images** : stockage du chemin relatif dans `custom_image`, chargement à la volée
+1. **QGraphicsView + QGraphicsScene** pour le canvas
+2. **networkx.minimum_spanning_tree** pour le MST
+3. **Flood fill itératif** (pile explicite, pas récursif)
+4. **JSON + jsonschema** pour la persistance
+5. **QTimer 30s** → autosave `~/.tower_dungeon/autosave.json`
+6. **Une QPixmap par étage**, invalidation partielle par cellule
+7. **Coordonnées internes** : index tableau → conversion dans `grid.py` uniquement
+8. **Rendu cellules :** GROUND/WALL = couleur pleine, autres = icône Unicode
+9. **Marqueur (0,0)** : highlight visuel spécifique sur la case centre uniquement (pas une croix pleine sur toute la grille)
+10. **Dossier `serialization/`** (pas `io/` — conflit stdlib Python)
 
 ---
 
 ## 🗺️ PLAN DE DÉVELOPPEMENT — CYCLE EN V
 
-### ✅ Phases de définition (descendante)
+### ✅ Phases terminées
 
-| Phase | Nom | Statut |
-|-------|-----|--------|
-| 1 | Analyse des besoins — cahier des charges | ✅ Terminé (ce document) |
-| 2 | Architecture globale — modules, schéma JSON | ✅ Terminé (ce document) |
-| 3 | Conception détaillée — signatures, algos | ✅ Terminé (ce document) |
+| Phase | Contenu | Statut |
+|-------|---------|--------|
+| **4a** | Modèle de données + serializer + 55 tests | ✅ Validé |
+| **4b** | Canvas PyQt6, fenêtre, palette outils, zoom/pan, multi-étages | ✅ Validé |
 
-### 🔲 Phases d'implémentation (fond du V)
+### 🔧 En cours / à venir
 
-| Phase | Nom | Priorité | Fichiers concernés |
-|-------|-----|----------|--------------------|
-| **4a** | Modèle de données + serializer | 🔴 Priorité 1 | `core/grid.py`, `io/serializer.py` |
-| **4b** | Canvas de base (rendu + clic) | 🔴 Priorité 2 | `ui/editor_view.py` |
-| **4c** | Outils de dessin + drag | 🟠 | `ui/editor_view.py`, `ui/toolbar.py` |
-| **4d** | Zoom/pan + coordonnées temps réel | 🟠 | `ui/editor_view.py` |
-| **4e** | Algorithme de génération (sans UI) | 🟠 | `core/generator.py`, `core/algorithms.py` |
-| **4f** | Bouton "Générer couloirs et murs" | 🟡 | `ui/main_window.py`, `ui/dialogs.py` |
-| **4g** | Navigation multi-étages | 🟡 | `ui/toolbar.py`, `core/grid.py` |
-| **4h** | Import/export + sauvegarde auto | 🟡 | `io/serializer.py`, `io/autosave.py` |
-| **5** | Upload sprites personnalisés | 🔵 Futur | `ui/dialogs.py`, `core/grid.py` |
-| **6** | Système de peuplement d'entités | 🔵 Futur | `core/populator.py`, `ui/dialogs.py` |
-| **7** | Packaging .exe PyInstaller | 🔵 Futur | — |
-
-### 🔲 Phases de validation (remontante)
-
-| Phase | Nom | Symétrie |
-|-------|-----|----------|
-| **V5** | Tests unitaires core/ | ↔ Phase 3 |
-| **V6** | Tests d'intégration pipeline | ↔ Phase 2 |
-| **V7** | Validation utilisateur game designer | ↔ Phase 1 |
+| Phase | Contenu | Fichiers |
+|-------|---------|----------|
+| **4b-fix** | Améliorations visuelles canvas : icônes sur cellules entités, marqueur (0,0) | `ui/editor_view.py` |
+| **4c** | Outils avancés : taille de pinceau, raccourcis clavier | `ui/editor_view.py`, `ui/main_window.py` |
+| **4d** | Navigation multi-étages améliorée (déjà partiel dans 4b) | `ui/toolbar.py` |
+| **4e** | Algorithmes + générateur procédural | `core/algorithms.py`, `core/generator.py` |
+| **4f** | Bouton "Générer couloirs et murs" + logs | `ui/main_window.py`, `ui/dialogs.py` |
+| **4g** | Import / Export JSON + dialog fichier | `ui/dialogs.py`, `serialization/serializer.py` |
+| **4h** | Autosave QTimer | `serialization/autosave.py` |
+| **5** | Upload sprites personnalisés | `ui/dialogs.py`, `core/grid.py` |
+| **6** | Peuplement d'entités (sliders + placement intelligent) | `core/populator.py` |
+| **7** | Tests d'intégration pipeline complet | `tests/` |
+| **8** | Packaging .exe PyInstaller | — |
 
 ---
 
@@ -253,94 +220,76 @@ De A(ax, ay) à B(bx, by) :
 
 | Module | Statut | Notes |
 |--------|--------|-------|
-| `core/grid.py` | 🔲 À faire | Phase 4a |
-| `core/generator.py` | 🔲 À faire | Phase 4e |
+| `core/grid.py` | ✅ Complet | 55 tests passent |
+| `serialization/serializer.py` | ✅ Complet | Import/export + jsonschema |
+| `app.py` | ✅ Complet | Point d'entrée fonctionnel |
+| `ui/main_window.py` | ✅ Fonctionnel | Palette outils, étages, status bar |
+| `ui/editor_view.py` | 🔧 En amélioration | Icônes entités + marqueur (0,0) à faire |
 | `core/algorithms.py` | 🔲 À faire | Phase 4e |
+| `core/generator.py` | 🔲 À faire | Phase 4e |
+| `serialization/autosave.py` | 🔲 À faire | Phase 4h |
+| `ui/dialogs.py` | 🔲 À faire | Phase 4f/4g |
 | `core/populator.py` | 🔲 Futur | Phase 6 |
-| `io/serializer.py` | 🔲 À faire | Phase 4a |
-| `io/autosave.py` | 🔲 À faire | Phase 4h |
-| `ui/editor_view.py` | 🔲 À faire | Phase 4b/4c/4d |
-| `ui/toolbar.py` | 🔲 À faire | Phase 4c/4g |
-| `ui/main_window.py` | 🔲 À faire | Phase 4f |
-| `ui/dialogs.py` | 🔲 À faire | Phase 4f/4h |
-| `app.py` | 🔲 À faire | Phase 4b |
-| `tests/` | 🔲 À faire | Phase V5 |
 
 ---
 
-## 🚦 AVANCEMENT DES COMMITS
+## 🚦 HISTORIQUE DES COMMITS
 
 | Tag | Description | Commit |
 |-----|-------------|--------|
-| — | Aucun commit pour l'instant | — |
+| 4a | Modèle de données + serializer + tests | `feat(core): Phase 4a — grid model, serializer, unit tests` |
+| 4b | Canvas PyQt6 fonctionnel | `feat(ui): Phase 4b — editor view, main window, zoom/pan` |
+
+---
+
+## 🐛 BUGS CORRIGÉS — NE PAS REPRODUIRE
+
+- `coords_to_index` : formule initiale `row = HALF - y` fausse → corrigée en `row = HALF - 1 - y`
+- `io/` renommé en `serialization/` — conflit avec module stdlib Python `io`
+- Tests `test_serializer.py` : fixture `tmp_path` pytest incompatible avec unittest → remplacée par `setUp/tearDown + tempfile`
+- `__init__.py` manquants dans `core/`, `serialization/`, `tests/` → à toujours créer lors d'un nouveau package
 
 ---
 
 ## 🔒 CONTRAINTES PERMANENTES
 
-1. **Ne jamais** instancier 5 184 widgets Qt pour la grille — canvas QGraphicsView obligatoire
-2. **STAIRS_DOWN forcé à (0,0)** — généré par le générateur, pas par l'utilisateur
-3. **Salles manuelles minimum 6×6** — refus avec message d'erreur si inférieur
+1. **Ne jamais** instancier 5 184 widgets Qt — canvas QGraphicsView obligatoire
+2. **STAIRS_DOWN forcé à (0,0)** — généré par le générateur, jamais par l'utilisateur
+3. **Salles manuelles minimum 6×6** — refus avec message d'erreur sinon
 4. **Salle STAIRS_UP isolée** — une seule connexion sortante dans le MST
 5. **Import JSON invalide** = refus + message d'erreur — jamais de corruption silencieuse
-6. **Sauvegarde auto** = toujours dans `~/.tower_dungeon/autosave.json` — jamais écraser le fichier principal
-7. **Custom_image** = chemin relatif uniquement — jamais de chemin absolu dans le JSON
+6. **Autosave** → `~/.tower_dungeon/autosave.json` — jamais écraser le fichier principal
+7. **custom_image** = chemin relatif uniquement
 8. **Un seul utilisateur** — pas d'auth, pas de réseau
-9. **Coordonnées (0,0) au centre** — conversion index ↔ coordonnées dans `grid.py` uniquement
-10. **Commit Git pour chaque livrable** — format `type(scope): description`
-11. **ast.parse() avant livraison** de tout fichier Python
-12. **jsonschema** à chaque import — validation obligatoire
-13. **Flood fill itératif** (pile explicite) pour éviter les RecursionError sur grandes salles
-14. **25 tentatives maximum** pour les salles de transition — si échec, couloir simple sans salle
-15. **Distance min 3 cases** entre salle de transition et salle manuelle
-16. **30% de chance** d'ajouter une connexion supplémentaire (boucle) dans le graphe post-MST
-
----
-
-## 🐛 BUGS CONNUS / PIÈGES À ÉVITER
-
-*(sera rempli au fil du développement)*
-
-- Flood fill récursif → RecursionError sur Python pour des salles > ~500 cases — utiliser une pile explicite
-- QGraphicsScene : ne pas oublier `scene.setSceneRect()` sinon le scroll est erratique
-- networkx MST : passer un graphe **pondéré** (distance euclidienne entre centres) sinon Kruskal est non-déterministe
-- Coordonnées grille vs coordonnées scène : ne pas mélanger les espaces de coordonnées — encapsuler la conversion dans `grid.py`
+9. **Coordonnées (0,0) = escalier d'entrée Godot** — ne jamais changer cette convention
+10. **Commit Git pour chaque livrable**
+11. **ast.parse() avant toute livraison** de fichier Python
+12. **Rendu :** GROUND/WALL = couleur pleine, entités = icône Unicode sur fond coloré
+13. **Marqueur (0,0)** = highlight sur la case uniquement, pas une croix traversant toute la grille
+14. **Flood fill itératif** — jamais récursif (RecursionError sur grandes surfaces)
+15. **25 tentatives max** pour les salles de transition
 
 ---
 
 ## 📁 FICHIERS À UPLOADER EN DÉBUT DE SESSION
 
-| Fichier | Phase | Peut être absent |
-|---------|-------|-----------------|
-| `app.py` | Toutes (dès 4b) | Oui (Phase 4a) |
-| `core/grid.py` | Toutes (dès 4a) | Non |
-| `core/generator.py` | 4e, 4f, V5 | Oui |
-| `core/algorithms.py` | 4e, V5 | Oui |
-| `io/serializer.py` | 4a, 4h, V5 | Oui |
-| `ui/editor_view.py` | 4b, 4c, 4d | Oui |
-| `ui/toolbar.py` | 4c, 4g | Oui |
-| `ui/main_window.py` | 4f, 4g | Oui |
+| Fichier | Phase | Obligatoire |
+|---------|-------|-------------|
+| `core/grid.py` | Toutes | Oui |
+| `serialization/serializer.py` | Toutes | Oui |
+| `app.py` | 4b+ | Oui |
+| `ui/main_window.py` | 4b+ | Oui |
+| `ui/editor_view.py` | 4b-fix, 4c, 4d | Oui |
+| `core/algorithms.py` | 4e | Non (pas encore créé) |
+| `core/generator.py` | 4e, 4f | Non (pas encore créé) |
+| `ui/dialogs.py` | 4f, 4g | Non (pas encore créé) |
+| `tests/test_grid.py` | QA | Non |
+| `tests/test_serializer.py` | QA | Non |
 
-**Pour Phase 4a (modèle + serializer) :** aucun fichier existant à uploader — partir de zéro  
-**Pour Phase 4b (canvas) :** `core/grid.py` + `io/serializer.py`  
-**Pour Phase 4e (générateur) :** `core/grid.py` + `core/algorithms.py`  
-**Pour bugfix génération :** `core/generator.py` + `core/algorithms.py` + `core/grid.py`  
-**Pour bugfix UI :** `ui/editor_view.py` + `ui/main_window.py`
-
----
-
-## 💡 CONTEXTE PROJET — ORIGINE
-
-Ce projet est le portage Python/PyQt6 d'un éditeur initialement conçu en React + TypeScript + Canvas HTML5.
-Le prompt original complet (architecture React, règles de génération procédurale, cas d'usage) est disponible dans `docs/PROMPT_ORIGINAL_REACT.md`.
-
-Les différences majeures React → PyQt6 :
-- Canvas HTML5 `requestAnimationFrame` → **QGraphicsView** avec invalidation sur modification
-- LocalStorage → **fichier JSON** + autosave QTimer
-- Interface tactile mobile → **desktop**, souris + clavier
-- TypeScript types → **dataclasses Python** + type hints
-- npm/bundler → **pip** + stdlib
+**Pour 4b-fix (améliorations visuelles) :** `ui/editor_view.py` + `core/grid.py`
+**Pour 4e (générateur) :** `core/grid.py` uniquement — partir de zéro pour algorithms.py et generator.py
+**Pour bugfix canvas :** `ui/editor_view.py` + `ui/main_window.py`
 
 ---
 
-*Dernière mise à jour : début de projet — Phase 4a non commencée*
+*Dernière mise à jour : Phase 4b validée — en cours : 4b-fix (icônes entités + marqueur 0,0)*
