@@ -9,15 +9,22 @@ Format d'export (par étage) :
   "height": 72,
   "centerX": 36,
   "centerY": 36,
-  "cells": {
-    "x,y": { "x": int, "y": int, "type": str },
-    ...
-  }
+  "cells": [
+    { "pos": [x, y] },
+    { "pos": [x, y], "type": "camp" },
+    { "pos": [x, y], "type": "wall", "mask": 5, "rot_y": 0.0 }
+  ]
 }
 
 Règles :
-  - Seules les cellules non-vides sont exportées
-  - Les types utilisent des tirets : stairs-down, stairs-up
+  - Seules les cellules non-EMPTY sont exportées (liste sparse)
+  - pos = [x, y] en coordonnées centrées Godot
+  - "type" omis si GROUND (valeur par défaut implicite)
+  - Les types utilisent des underscores : stairs_down, stairs_up
+  - "mask" et "rot_y" présents uniquement sur les cellules WALL
+    mask : bitmask 4 bits N=1/E=2/S=4/O=8 — voisin plein = non-EMPTY
+    rot_y : rotation en degrés autour de l'axe Y (convention Godot,
+            sens anti-horaire vu du dessus, 0° = face vers -Z)
   - Import invalide = SerializerError — jamais de corruption silencieuse
 """
 
@@ -34,7 +41,7 @@ from core.grid import CellType, GridModel, Floor, GRID_SIZE, HALF
 # Mapping CellType ↔ string Godot
 # ---------------------------------------------------------------------------
 
-# CellType.value → string JSON Godot
+# CellType.value → string JSON Godot (underscores)
 _TO_GODOT: dict[str, str] = {
     "empty":       "empty",
     "ground":      "ground",
@@ -44,8 +51,8 @@ _TO_GODOT: dict[str, str] = {
     "treasure":    "treasure",
     "trap":        "trap",
     "camp":        "camp",
-    "stairs_down": "stairs-down",
-    "stairs_up":   "stairs-up",
+    "stairs_down": "stairs_down",
+    "stairs_up":   "stairs_up",
     "spawn":       "spawn",
 }
 
@@ -53,6 +60,38 @@ _TO_GODOT: dict[str, str] = {
 _FROM_GODOT: dict[str, str] = {v: k for k, v in _TO_GODOT.items()}
 
 VALID_GODOT_TYPES = set(_FROM_GODOT.keys())
+
+
+# ---------------------------------------------------------------------------
+# Table bitmask → rot_y pour les murs
+#
+# Encodage des voisins (axe Y vers le haut, sens anti-horaire vu du dessus) :
+#   N = bit 0 (1)   voisin en y+1
+#   E = bit 1 (2)   voisin en x+1
+#   S = bit 2 (4)   voisin en y-1
+#   O = bit 3 (8)   voisin en x-1
+#
+# rot_y : degrés, axe Y Godot, 0° = face vers -Z
+# ---------------------------------------------------------------------------
+
+_WALL_ROT_Y: dict[int, float] = {
+    0:  0.0,    # isolé
+    1:  0.0,    # N
+    2:  90.0,   # E
+    3:  90.0,   # N+E  coin
+    4:  180.0,  # S
+    5:  0.0,    # N+S  couloir
+    6:  180.0,  # E+S  coin
+    7:  90.0,   # N+E+S  T sans O
+    8:  270.0,  # O
+    9:  0.0,    # N+O  coin
+    10: 90.0,   # E+O  couloir
+    11: 0.0,    # N+E+O  T sans S
+    12: 270.0,  # S+O  coin
+    13: 270.0,  # N+S+O  T sans E
+    14: 180.0,  # E+S+O  T sans N
+    15: 0.0,    # N+E+S+O  croix
+}
 
 
 # ---------------------------------------------------------------------------
@@ -170,18 +209,40 @@ class Serializer:
     # ------------------------------------------------------------------
 
     def _floor_to_godot(self, floor: Floor) -> dict:
-        """Convertit un Floor en dict format Godot."""
-        cells: dict[str, dict] = {}
+        """Convertit un Floor en dict format Godot.
+
+        - Liste sparse : seules les cellules non-EMPTY sont incluses
+        - GROUND : {"pos": [x, y]} — type omis car valeur par défaut
+        - Autres : {"pos": [x, y], "type": "..."}
+        - WALL  : {"pos": [x, y], "type": "wall", "mask": int, "rot_y": float}
+        """
+        cells: list[dict] = []
 
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 cell = floor.grid[row][col]
                 if cell.cell_type == CellType.EMPTY:
                     continue
+
                 x, y = GridModel.index_to_coords(row, col)
-                godot_type = _TO_GODOT[cell.cell_type.value]
-                key = f"{x},{y}"
-                cells[key] = {"x": x, "y": y, "type": godot_type}
+
+                if cell.cell_type == CellType.GROUND:
+                    # Type omis — GROUND est la valeur par défaut implicite
+                    cells.append({"pos": [x, y]})
+
+                elif cell.cell_type == CellType.WALL:
+                    mask = self._compute_wall_mask(floor, row, col)
+                    rot_y = _WALL_ROT_Y[mask]
+                    cells.append({
+                        "pos":   [x, y],
+                        "type":  "wall",
+                        "mask":  mask,
+                        "rot_y": rot_y,
+                    })
+
+                else:
+                    godot_type = _TO_GODOT[cell.cell_type.value]
+                    cells.append({"pos": [x, y], "type": godot_type})
 
         return {
             "level":   floor.floor_id,
@@ -192,8 +253,37 @@ class Serializer:
             "cells":   cells,
         }
 
+    def _compute_wall_mask(self, floor: Floor, row: int, col: int) -> int:
+        """Calcule le bitmask 4 bits d'un mur selon ses voisins cardinaux.
+
+        Un voisin est "plein" s'il est non-EMPTY (sol, mur, entité…).
+        Encodage : N=1 (y+1 → row-1), E=2 (x+1 → col+1),
+                   S=4 (y-1 → row+1), O=8 (x-1 → col-1)
+        """
+        def is_solid(r: int, c: int) -> bool:
+            if not (0 <= r < GRID_SIZE and 0 <= c < GRID_SIZE):
+                return False
+            return floor.grid[r][c].cell_type != CellType.EMPTY
+
+        mask = 0
+        if is_solid(row - 1, col):  # N  (y+1)
+            mask |= 1
+        if is_solid(row, col + 1):  # E  (x+1)
+            mask |= 2
+        if is_solid(row + 1, col):  # S  (y-1)
+            mask |= 4
+        if is_solid(row, col - 1):  # O  (x-1)
+            mask |= 8
+        return mask
+
     def _godot_to_floor(self, data: dict, source_name: str) -> Floor:
-        """Convertit un dict Godot en Floor."""
+        """Convertit un dict Godot en Floor.
+
+        - cells est une liste sparse
+        - pos[0] = x, pos[1] = y (coordonnées centrées)
+        - "type" absent → GROUND par défaut
+        - "mask" et "rot_y" ignorés (données Godot only)
+        """
         from core.grid import Cell, Floor as FloorClass
 
         level_id = int(data.get("level", 1))
@@ -201,19 +291,20 @@ class Serializer:
 
         floor = FloorClass(floor_id=level_id, name=name)
 
-        for key, cell_data in data["cells"].items():
+        for i, cell_data in enumerate(data["cells"]):
             try:
-                x = int(cell_data["x"])
-                y = int(cell_data["y"])
-            except (KeyError, ValueError) as exc:
+                pos = cell_data["pos"]
+                x = int(pos[0])
+                y = int(pos[1])
+            except (KeyError, IndexError, ValueError, TypeError) as exc:
                 raise SerializerError(
-                    f"Cellule '{key}' : coordonnées invalides dans {source_name}."
+                    f"Cellule #{i} : 'pos' invalide dans {source_name}."
                 ) from exc
 
-            godot_type = cell_data.get("type", "")
+            godot_type = cell_data.get("type", "ground")
             if godot_type not in _FROM_GODOT:
                 raise SerializerError(
-                    f"Cellule '{key}' : type inconnu '{godot_type}' dans {source_name}."
+                    f"Cellule #{i} : type inconnu '{godot_type}' dans {source_name}."
                 )
 
             internal_type = _FROM_GODOT[godot_type]
@@ -221,7 +312,7 @@ class Serializer:
 
             if not GridModel.is_valid_coords(x, y):
                 raise SerializerError(
-                    f"Cellule '{key}' : coordonnées ({x}, {y}) hors grille dans {source_name}."
+                    f"Cellule #{i} : coordonnées ({x}, {y}) hors grille dans {source_name}."
                 )
 
             floor.set_cell_at(x, y, cell_type)
@@ -242,9 +333,9 @@ class Serializer:
             raise SerializerError(
                 f"Champ 'cells' manquant dans {source_name}."
             )
-        if not isinstance(data["cells"], dict):
+        if not isinstance(data["cells"], list):
             raise SerializerError(
-                f"'cells' doit être un objet dans {source_name}."
+                f"'cells' doit être un tableau dans {source_name}."
             )
 
     # ------------------------------------------------------------------
