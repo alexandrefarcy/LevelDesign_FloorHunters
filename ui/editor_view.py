@@ -24,6 +24,7 @@ from core.grid import (
     CellType, GridModel, GRID_SIZE, HALF,
     CELL_COLORS, CELL_LABELS,
 )
+from ui.constants import TOOL_ERASER
 
 # Taille d'une cellule en pixels dans la QPixmap
 CELL_PX = 16
@@ -34,13 +35,9 @@ GRID_LINE_COLOR = QColor(60, 60, 70, 180)
 # Couleur de fond de la scène
 SCENE_BG_COLOR = QColor(20, 20, 25)
 
-# Outil gomme — même constante que dans main_window
-TOOL_ERASER = "eraser"
-
-
 # Coordonnées index de la case (0,0) — escalier d'entrée Godot
-ORIGIN_ROW = HALF - 1   # 35
-ORIGIN_COL = HALF       # 36
+# Dérivées de GridModel pour rester en sync si la formule change
+ORIGIN_ROW, ORIGIN_COL = GridModel.coords_to_index(0, 0)
 
 # Icônes Unicode pour les cellules entités
 CELL_ICONS: dict[CellType, str] = {
@@ -60,10 +57,12 @@ class EditorView(QGraphicsView):
 
     Signals:
         cell_hovered(x, y)              : coordonnées centrées survolées
+        cell_hovered_cleared()          : curseur sorti de la grille
         cell_painted(x, y, type_value)  : cellule modifiée
     """
 
     cell_hovered = pyqtSignal(int, int)
+    cell_hovered_cleared = pyqtSignal()
     cell_painted = pyqtSignal(int, int, str)
 
     def __init__(self, model: GridModel, parent=None) -> None:
@@ -136,17 +135,17 @@ class EditorView(QGraphicsView):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # Dessin de toutes les cellules
+        # Dessin de toutes les cellules non-vides
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 cell = floor.grid[row][col]
                 if cell.cell_type != CellType.EMPTY:
-                    self._draw_cell(painter, row, col, cell.cell_type)
+                    self._draw_cell_on_painter(painter, row, col, cell.cell_type)
 
         # Marqueur (0,0) — par-dessus les cellules, sous la grille
-        self._draw_origin_marker(painter)
+        self._draw_origin_marker_on_painter(painter)
 
-        # Lignes de grille
+        # Lignes de grille (par-dessus tout)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         painter.setPen(QPen(GRID_LINE_COLOR, 0.5))
         for i in range(GRID_SIZE + 1):
@@ -156,9 +155,13 @@ class EditorView(QGraphicsView):
         painter.end()
         return pixmap
 
-    def _draw_cell(self, painter: QPainter, row: int, col: int,
-                   cell_type: CellType) -> None:
-        """Dessine une cellule : couleur pleine pour sol/mur, icône pour entités."""
+    def _draw_cell_on_painter(self, painter: QPainter, row: int, col: int,
+                               cell_type: CellType) -> None:
+        """Dessine une cellule : couleur pleine pour sol/mur, icône pour entités.
+
+        Méthode commune utilisée par _render_floor et _repaint_cell
+        pour éviter toute duplication.
+        """
         r, g, b = CELL_COLORS[cell_type]
         x = col * CELL_PX
         y = row * CELL_PX
@@ -180,10 +183,12 @@ class EditorView(QGraphicsView):
                 icon,
             )
 
-    def _draw_origin_marker(self, painter: QPainter) -> None:
+    def _draw_origin_marker_on_painter(self, painter: QPainter) -> None:
         """Dessine le marqueur de la case (0,0) — origine du repère Godot."""
         x = ORIGIN_COL * CELL_PX
         y = ORIGIN_ROW * CELL_PX
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         # Bordure jaune vive sur les 4 côtés de la case
         painter.setPen(QPen(QColor(255, 220, 0, 255), 2))
@@ -212,38 +217,20 @@ class EditorView(QGraphicsView):
         x = col * CELL_PX
         y = row * CELL_PX
 
-        # Fond de la cellule
-        r, g, b = CELL_COLORS[cell.cell_type]
-        painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(r, g, b))
+        # Toujours effacer d'abord avec la couleur EMPTY pour éviter les
+        # résidus visuels (notamment le marqueur (0,0) sur fond vide)
+        painter.fillRect(x, y, CELL_PX, CELL_PX,
+                         QColor(*CELL_COLORS[CellType.EMPTY]))
 
-        # Icône si cellule entité
-        if cell.cell_type in CELL_ICONS:
-            icon = CELL_ICONS[cell.cell_type]
-            font = QFont()
-            font.setPixelSize(max(8, CELL_PX - 4))
-            font.setBold(True)
-            painter.setFont(font)
-            painter.setPen(QColor(255, 255, 255, 230))
-            painter.drawText(
-                x, y, CELL_PX, CELL_PX,
-                Qt.AlignmentFlag.AlignCenter,
-                icon,
-            )
+        # Dessin de la cellule si non-vide
+        if cell.cell_type != CellType.EMPTY:
+            self._draw_cell_on_painter(painter, row, col, cell.cell_type)
 
         # Marqueur (0,0) si on repeint cette case précise
         if row == ORIGIN_ROW and col == ORIGIN_COL:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setPen(QPen(QColor(255, 220, 0, 255), 2))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(x + 1, y + 1, CELL_PX - 2, CELL_PX - 2)
-            cx = x + CELL_PX // 2
-            cy = y + CELL_PX // 2
-            arm = max(2, CELL_PX // 4)
-            painter.setPen(QPen(QColor(255, 220, 0, 200), 1))
-            painter.drawLine(cx - arm, cy, cx + arm, cy)
-            painter.drawLine(cx, cy - arm, cx, cy + arm)
+            self._draw_origin_marker_on_painter(painter)
 
-        # Bords de grille
+        # Bords de grille (par-dessus tout)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         painter.setPen(QPen(GRID_LINE_COLOR, 0.5))
         painter.drawRect(x, y, CELL_PX, CELL_PX)
@@ -302,7 +289,6 @@ class EditorView(QGraphicsView):
             self._is_drawing = True
             scene_pos = self.mapToScene(event.pos())
             self._paint_at(scene_pos)
-
         elif event.button() in (
             Qt.MouseButton.MiddleButton,
             Qt.MouseButton.RightButton,
@@ -310,8 +296,10 @@ class EditorView(QGraphicsView):
             self._is_panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
-
-        super().mousePressEvent(event)
+        # Ne pas appeler super() pour le clic gauche afin d'éviter
+        # les comportements Qt non désirés (rubber band, sélection…)
+        else:
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         scene_pos = self.mapToScene(event.pos())
@@ -350,6 +338,11 @@ class EditorView(QGraphicsView):
             self._is_panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
         super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        """Notifie main_window que le curseur a quitté la grille."""
+        self.cell_hovered_cleared.emit()
+        super().leaveEvent(event)
 
     # ------------------------------------------------------------------
     # Zoom molette

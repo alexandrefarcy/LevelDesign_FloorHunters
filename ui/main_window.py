@@ -25,10 +25,7 @@ from PyQt6.QtGui import QColor, QFont
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
 from serialization.serializer import Serializer, SerializerError
 from ui.editor_view import EditorView
-
-
-# Outil gomme — identifiant UI uniquement, jamais stocké dans la grille
-TOOL_ERASER = "eraser"
+from ui.constants import TOOL_ERASER
 
 
 class MainWindow(QMainWindow):
@@ -96,6 +93,7 @@ class MainWindow(QMainWindow):
         # Canvas éditeur
         self.editor_view = EditorView(self.model, parent=self)
         self.editor_view.cell_hovered.connect(self._on_cell_hovered)
+        self.editor_view.cell_hovered_cleared.connect(self._on_cell_hovered_cleared)
         self.editor_view.cell_painted.connect(self._on_cell_painted)
         right_layout.addWidget(self.editor_view, stretch=1)
 
@@ -347,6 +345,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot(int, int)
     def _on_cell_hovered(self, x: int, y: int) -> None:
         self._update_status(f"Coordonnées : ({x}, {y})")
+
+    @pyqtSlot()
+    def _on_cell_hovered_cleared(self) -> None:
+        self._update_status("Prêt — cliquez sur la grille pour dessiner.")
 
     @pyqtSlot(int, int, str)
     def _on_cell_painted(self, x: int, y: int, cell_type_value: str) -> None:
