@@ -446,21 +446,33 @@ class EditorView(QGraphicsView):
             super().keyPressEvent(event)
 
     # ------------------------------------------------------------------
-    # Zoom molette
+    # Zoom molette + scroll modifié
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        zoom_in_factor = 1.15
-        zoom_out_factor = 1 / zoom_in_factor
+        modifiers = event.modifiers()
+        delta = event.angleDelta().y()
 
-        if event.angleDelta().y() > 0:
-            factor = zoom_in_factor
+        if modifiers == Qt.KeyboardModifier.ControlModifier:
+            # Ctrl + molette : scroll horizontal
+            scroll_amount = -delta // 2
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() + scroll_amount
+            )
+
+        elif modifiers == Qt.KeyboardModifier.ShiftModifier:
+            # Shift + molette : scroll vertical
+            scroll_amount = -delta // 2
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() + scroll_amount
+            )
+
         else:
-            factor = zoom_out_factor
-
-        new_zoom = self._zoom_factor * factor
-
-        # Limites de zoom : 20% à 800%
-        if 0.2 <= new_zoom <= 8.0:
-            self._zoom_factor = new_zoom
-            self.scale(factor, factor)
+            # Molette seule : zoom centré sur le curseur
+            zoom_in_factor = 1.15
+            zoom_out_factor = 1 / zoom_in_factor
+            factor = zoom_in_factor if delta > 0 else zoom_out_factor
+            new_zoom = self._zoom_factor * factor
+            if 0.2 <= new_zoom <= 8.0:
+                self._zoom_factor = new_zoom
+                self.scale(factor, factor)
