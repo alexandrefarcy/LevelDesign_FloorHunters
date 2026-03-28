@@ -22,7 +22,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 GRID_SIZE = 72          # Nombre de colonnes ET de lignes
-HALF = GRID_SIZE // 2   # 36 — demi-taille pour le centrage des coordonnées
+HALF = GRID_SIZE // 2   # 36  demi-taille pour le centrage des coordonnées
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ class CellType(str, Enum):
     """Types de cellules disponibles dans l'éditeur.
 
     La valeur string correspond exactement à la clé utilisée dans le JSON
-    d'export/import — ne pas modifier sans versionner le schéma.
+    d'export/import  ne pas modifier sans versionner le schéma.
     """
     EMPTY        = "empty"
     GROUND       = "ground"
@@ -47,7 +47,7 @@ class CellType(str, Enum):
     STAIRS_UP    = "stairs_up"
     SPAWN        = "spawn"
 
-    # ERASER n'est pas une cellule — c'est un outil UI.
+    # ERASER n'est pas une cellule  c'est un outil UI.
     # Il ne doit jamais être stocké dans la grille.
 
 
@@ -339,7 +339,7 @@ class GridModel:
     def rename_floor(self, floor_id: int, new_name: str) -> None:
         """Renomme un étage. Lève ValueError si introuvable.
 
-        Le nom est strippé des espaces — une chaîne vide est refusée.
+        Le nom est strippé des espaces  une chaîne vide est refusée.
         """
         new_name = new_name.strip()
         if not new_name:

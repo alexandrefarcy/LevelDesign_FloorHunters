@@ -1,6 +1,6 @@
 """
 tests/test_serializer.py
-Tests unitaires pour serialization/serializer.py — format Godot v2.
+Tests unitaires pour serialization/serializer.py  format Godot v2.
 
 Format attendu :
 {

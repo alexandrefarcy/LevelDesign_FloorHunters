@@ -1,6 +1,6 @@
 """
 ui/editor_view.py
-Canvas principal de l'éditeur — rendu de la grille 72×72.
+Canvas principal de l'éditeur  rendu de la grille 72×72.
 
 Fonctionnalités :
   - Rendu QGraphicsView + QGraphicsScene (une QPixmap par étage)
@@ -38,7 +38,7 @@ GRID_LINE_COLOR = QColor(60, 60, 70, 180)
 # Couleur de fond de la scène
 SCENE_BG_COLOR = QColor(20, 20, 25)
 
-# Coordonnées index de la case (0,0) — escalier d'entrée Godot
+# Coordonnées index de la case (0,0)  escalier d'entrée Godot
 # Dérivées de GridModel pour rester en sync si la formule change
 ORIGIN_ROW, ORIGIN_COL = GridModel.coords_to_index(0, 0)
 
@@ -79,7 +79,7 @@ class EditorView(QGraphicsView):
         self._pan_start = QPointF()    # position souris au début du pan
         self._zoom_factor = 1.0        # facteur de zoom courant
 
-        # Historique undo/redo — snapshots de grille par coup de pinceau
+        # Historique undo/redo  snapshots de grille par coup de pinceau
         self._undo_stack: deque[list[list]] = deque(maxlen=UNDO_MAX_LEVELS)
         self._redo_stack: deque[list[list]] = deque(maxlen=UNDO_MAX_LEVELS)
         self._snapshot_before: list[list] | None = None  # snapshot au mousePress
@@ -200,7 +200,7 @@ class EditorView(QGraphicsView):
                 if cell.cell_type != CellType.EMPTY:
                     self._draw_cell_on_painter(painter, row, col, cell.cell_type)
 
-        # Marqueur (0,0) — par-dessus les cellules, sous la grille
+        # Marqueur (0,0)  par-dessus les cellules, sous la grille
         self._draw_origin_marker_on_painter(painter)
 
         # Lignes de grille (par-dessus tout)
@@ -242,7 +242,7 @@ class EditorView(QGraphicsView):
             )
 
     def _draw_origin_marker_on_painter(self, painter: QPainter) -> None:
-        """Dessine le marqueur de la case (0,0) — origine du repère Godot."""
+        """Dessine le marqueur de la case (0,0)  origine du repère Godot."""
         x = ORIGIN_COL * CELL_PX
         y = ORIGIN_ROW * CELL_PX
 

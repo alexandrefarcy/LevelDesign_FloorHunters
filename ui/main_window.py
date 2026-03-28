@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
         # --- Construction de l'UI ---
         self._build_ui()
         self._refresh_floor_selector()
-        self._update_status("Prêt — cliquez sur la grille pour dessiner.")
+        self._update_status("Prêt  cliquez sur la grille pour dessiner.")
 
     # ------------------------------------------------------------------
     # Construction de l'interface
@@ -331,7 +331,7 @@ class MainWindow(QMainWindow):
         """
 
     # ------------------------------------------------------------------
-    # Slots — outils
+    # Slots  outils
     # ------------------------------------------------------------------
 
     @pyqtSlot(bool)
@@ -362,7 +362,7 @@ class MainWindow(QMainWindow):
             self._update_status(f"Outil sélectionné : {label}")
 
     # ------------------------------------------------------------------
-    # Slots — étages
+    # Slots  étages
     # ------------------------------------------------------------------
 
     @pyqtSlot()
@@ -440,7 +440,7 @@ class MainWindow(QMainWindow):
         self.editor_view.reset_zoom()
 
     # ------------------------------------------------------------------
-    # Slots — canvas
+    # Slots  canvas
     # ------------------------------------------------------------------
 
     @pyqtSlot(int, int)
@@ -449,7 +449,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_cell_hovered_cleared(self) -> None:
-        self._update_status("Prêt — cliquez sur la grille pour dessiner.")
+        self._update_status("Prêt  cliquez sur la grille pour dessiner.")
 
     @pyqtSlot()
     def _on_undo(self) -> None:
@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Slots — fichier
+    # Slots  fichier
     # ------------------------------------------------------------------
 
     @pyqtSlot()
@@ -522,7 +522,7 @@ class MainWindow(QMainWindow):
         self.model = model
         self.editor_view.model = model
         self._current_path = path
-        self.setWindowTitle(f"Tower Dungeon Level Editor — {path.name}")
+        self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
         self._refresh_floor_selector()
         self.editor_view.refresh()
         self._update_status(f"Projet chargé : {path.name}")
@@ -546,7 +546,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Erreur de sauvegarde", str(exc))
             return
         self._current_path = path
-        self.setWindowTitle(f"Tower Dungeon Level Editor — {path.name}")
+        self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
         self._update_status(f"Projet sauvegardé : {path.name}")
 
     def _refresh_floor_selector(self) -> None:

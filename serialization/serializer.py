@@ -1,6 +1,6 @@
 """
 serialization/serializer.py
-Import et export JSON du projet Tower Dungeon — format Godot.
+Import et export JSON du projet Tower Dungeon  format Godot.
 
 Format d'export (par étage) :
 {
@@ -22,10 +22,10 @@ Règles :
   - "type" omis si GROUND (valeur par défaut implicite)
   - Les types utilisent des underscores : stairs_down, stairs_up
   - "mask" et "rot_y" présents uniquement sur les cellules WALL
-    mask : bitmask 4 bits N=1/E=2/S=4/O=8 — voisin plein = non-EMPTY
+    mask : bitmask 4 bits N=1/E=2/S=4/O=8  voisin plein = non-EMPTY
     rot_y : rotation en degrés autour de l'axe Y (convention Godot,
             sens anti-horaire vu du dessus, 0° = face vers -Z)
-  - Import invalide = SerializerError — jamais de corruption silencieuse
+  - Import invalide = SerializerError  jamais de corruption silencieuse
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ class Serializer:
         """Convertit un Floor en dict format Godot.
 
         - Liste sparse : seules les cellules non-EMPTY sont incluses
-        - GROUND : {"pos": [x, y]} — type omis car valeur par défaut
+        - GROUND : {"pos": [x, y]}  type omis car valeur par défaut
         - Autres : {"pos": [x, y], "type": "..."}
         - WALL  : {"pos": [x, y], "type": "wall", "mask": int, "rot_y": float}
         """
@@ -227,7 +227,7 @@ class Serializer:
                 x, y = GridModel.index_to_coords(row, col)
 
                 if cell.cell_type == CellType.GROUND:
-                    # Type omis — GROUND est la valeur par défaut implicite
+                    # Type omis  GROUND est la valeur par défaut implicite
                     cells.append({"pos": [x, y]})
 
                 elif cell.cell_type == CellType.WALL:
