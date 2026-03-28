@@ -26,6 +26,7 @@ from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
 from core.generator import Generator
 from serialization.serializer import Serializer, SerializerError
+from serialization.autosave import AutoSave
 from ui.editor_view import EditorView
 from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT
 
@@ -57,6 +58,12 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._refresh_floor_selector()
         self._update_status("Prêt  cliquez sur la grille pour dessiner.")
+
+        # --- Autosave ---
+        self._autosave = AutoSave(self.model, self._serializer)
+        self._autosave.saved.connect(self._on_autosave_saved)
+        self._autosave.failed.connect(self._on_autosave_failed)
+        self._autosave.start()
 
     # ------------------------------------------------------------------
     # Construction de l'interface
@@ -521,49 +528,146 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_open_project(self) -> None:
+        """Ouvre un projet complet (.tdp.json) ou un export Godot (.json)."""
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Ouvrir un projet",
             str(self._current_path.parent if self._current_path else Path.home()),
-            "Tower Dungeon JSON (*.json);;Tous les fichiers (*)",
+            "Projet Tower Dungeon (*.tdp.json);;Export Godot (*.json);;Tous les fichiers (*)",
         )
         if not path_str:
             return
         path = Path(path_str)
+
         try:
-            model = self._serializer.load(path)
+            # Detecte le format selon l'extension
+            if path.name.endswith(".tdp.json"):
+                model = self._serializer.load_project(path)
+                fmt = "projet"
+            else:
+                model = self._serializer.load(path)
+                fmt = "export Godot"
         except SerializerError as exc:
             QMessageBox.critical(self, "Erreur d'ouverture", str(exc))
             return
+
         self.model = model
         self.editor_view.model = model
+        self._autosave.set_model(model)
         self._current_path = path
+        n = model.floor_count
         self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
         self._refresh_floor_selector()
         self.editor_view.refresh()
-        self._update_status(f"Projet chargé : {path.name}")
+        self._update_status(
+            f"Projet charge ({fmt}) : {path.name}  --  {n} etage(s)"
+        )
 
     @pyqtSlot()
     def _on_save_project(self) -> None:
-        path_str, _ = QFileDialog.getSaveFileName(
-            self,
-            "Enregistrer le projet",
-            str(self._current_path if self._current_path else Path.home() / "projet.json"),
-            "Tower Dungeon JSON (*.json);;Tous les fichiers (*)",
-        )
-        if not path_str:
+        """Enregistre le projet.
+
+        Propose deux options :
+          - Projet complet (.tdp.json) : tous les etages, rechargeable
+          - Export Godot (.json)       : etage actif uniquement, pour Godot
+        """
+        # Choix du mode de sauvegarde
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Enregistrer")
+        dlg.setFixedSize(380, 160)
+        dlg.setStyleSheet("background-color: #2b2b2b; color: #eeeeee;")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        lbl = QLabel("Que voulez-vous enregistrer ?")
+        lbl.setStyleSheet("font-size: 12px; color: #dddddd;")
+        layout.addWidget(lbl)
+
+        btn_layout = QHBoxLayout()
+
+        btn_project = QPushButton("Projet complet\n(tous les etages)")
+        btn_project.setFixedHeight(48)
+        btn_project.setStyleSheet(self._action_btn_style("#446644"))
+        btn_project.clicked.connect(lambda: dlg.done(1))
+        btn_layout.addWidget(btn_project)
+
+        btn_godot = QPushButton("Export Godot\n(etage actif)")
+        btn_godot.setFixedHeight(48)
+        btn_godot.setStyleSheet(self._action_btn_style("#445566"))
+        btn_godot.clicked.connect(lambda: dlg.done(2))
+        btn_layout.addWidget(btn_godot)
+
+        btn_cancel = QPushButton("Annuler")
+        btn_cancel.setFixedHeight(48)
+        btn_cancel.setStyleSheet(self._action_btn_style("#555555"))
+        btn_cancel.clicked.connect(lambda: dlg.done(0))
+        btn_layout.addWidget(btn_cancel)
+
+        layout.addLayout(btn_layout)
+        choice = dlg.exec()
+
+        if choice == 0:
             return
-        path = Path(path_str)
-        if not path_str.endswith(".json"):
-            path = path.with_suffix(".json")
-        try:
-            self._serializer.save(self.model, path)
-        except SerializerError as exc:
-            QMessageBox.critical(self, "Erreur de sauvegarde", str(exc))
-            return
-        self._current_path = path
-        self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
-        self._update_status(f"Projet sauvegardé : {path.name}")
+
+        if choice == 1:
+            # Sauvegarde projet complet
+            default = str(
+                self._current_path if (
+                    self._current_path and self._current_path.name.endswith(".tdp.json")
+                ) else Path.home() / "projet.tdp.json"
+            )
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Enregistrer le projet complet",
+                default,
+                "Projet Tower Dungeon (*.tdp.json);;Tous les fichiers (*)",
+            )
+            if not path_str:
+                return
+            path = Path(path_str)
+            if not path_str.endswith(".tdp.json"):
+                path = Path(path_str + ".tdp.json") if not path_str.endswith(".json") \
+                    else path.with_suffix("").with_suffix(".tdp.json")
+            try:
+                self._serializer.save_project(self.model, path)
+            except SerializerError as exc:
+                QMessageBox.critical(self, "Erreur de sauvegarde", str(exc))
+                return
+            self._current_path = path
+            n = self.model.floor_count
+            self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
+            self._update_status(
+                f"Projet sauvegarde : {path.name}  --  {n} etage(s)"
+            )
+
+        else:
+            # Export Godot etage actif
+            default = str(
+                self._current_path if (
+                    self._current_path and not self._current_path.name.endswith(".tdp.json")
+                ) else Path.home() / "level_1.json"
+            )
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Exporter l'etage actif (Godot)",
+                default,
+                "Export Godot JSON (*.json);;Tous les fichiers (*)",
+            )
+            if not path_str:
+                return
+            path = Path(path_str)
+            if not path_str.endswith(".json"):
+                path = path.with_suffix(".json")
+            try:
+                self._serializer.save(self.model, path)
+            except SerializerError as exc:
+                QMessageBox.critical(self, "Erreur d'export", str(exc))
+                return
+            self._update_status(f"Export Godot : {path.name}")
+
+
 
     # ------------------------------------------------------------------
     # Slots  generation procedurale
@@ -647,6 +751,23 @@ class MainWindow(QMainWindow):
         layout.addWidget(buttons)
 
         dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Slots  autosave
+    # ------------------------------------------------------------------
+
+    @pyqtSlot(str)
+    def _on_autosave_saved(self, path: str) -> None:
+        """Affiche une confirmation discrete dans la barre de statut."""
+        from pathlib import Path as _Path
+        self.status_bar.showMessage(
+            f"Autosave OK  --  {_Path(path).name}", 4000
+        )
+
+    @pyqtSlot(str)
+    def _on_autosave_failed(self, error: str) -> None:
+        """Affiche une alerte discrete en cas d'echec autosave."""
+        self.status_bar.showMessage(f"Autosave echoue : {error}", 6000)
 
     def _refresh_floor_selector(self) -> None:
         """Resynchronise le sélecteur d'étages avec le modèle."""

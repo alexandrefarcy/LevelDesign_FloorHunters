@@ -160,6 +160,69 @@ class Serializer:
             paths.append(out)
         return paths
 
+    def save_project(self, model: GridModel, path: Path) -> None:
+        """Exporte TOUS les etages dans un fichier projet unique (.tdp.json).
+
+        Format :
+        {
+          "version": 1,
+          "floors": [ { ...format Godot par etage... }, ... ]
+        }
+
+        Args:
+            model: Le modele complet multi-etages.
+            path:  Chemin du fichier de destination.
+        """
+        if model.floor_count == 0:
+            raise SerializerError("Le projet ne contient aucun etage.")
+
+        floors_data = [self._floor_to_godot(f) for f in model.floors]
+        data = {
+            "version": 1,
+            "active_floor": model.active_floor_id,
+            "floors": floors_data,
+        }
+        self._write_json(data, path)
+
+    def load_project(self, path: Path) -> GridModel:
+        """Charge un fichier projet (.tdp.json) et retourne un GridModel complet.
+
+        Args:
+            path: Chemin du fichier projet.
+
+        Returns:
+            GridModel avec tous les etages restaures.
+        """
+        if not path.exists():
+            raise SerializerError(f"Fichier introuvable : {path}")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SerializerError(f"Erreur de lecture : {exc}") from exc
+
+        if not isinstance(data, dict):
+            raise SerializerError("Format projet invalide : objet JSON attendu.")
+        if "floors" not in data or not isinstance(data["floors"], list):
+            raise SerializerError("Format projet invalide : champ 'floors' manquant ou invalide.")
+        if not data["floors"]:
+            raise SerializerError("Le fichier projet ne contient aucun etage.")
+
+        model = GridModel()
+        for i, floor_data in enumerate(data["floors"]):
+            source = f"{path.name} (etage {i + 1})"
+            self._validate_godot(floor_data, source)
+            floor = self._godot_to_floor(floor_data, source)
+            model.floors.append(floor)
+            model._next_id = max(model._next_id, floor.floor_id + 1)
+
+        # Restaure l'etage actif
+        active_id = data.get("active_floor", model.floors[0].floor_id)
+        ids = {f.floor_id for f in model.floors}
+        model._active_floor_id = active_id if active_id in ids else model.floors[0].floor_id
+
+        return model
+
     def to_json_string(self, model: GridModel, indent: int = 2) -> str:
         """Retourne le JSON de l'étage actif sous forme de chaîne."""
         if model.floor_count == 0:
