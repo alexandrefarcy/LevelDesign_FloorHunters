@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QFrame, QScrollArea, QComboBox,
     QStatusBar, QFileDialog, QMessageBox, QInputDialog,
     QDialog, QTextEdit, QDialogButtonBox,
+    QSlider, QSpinBox,
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSlot
@@ -25,6 +26,7 @@ from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
 from core.generator import Generator
+from core.populator import Populator
 from serialization.serializer import Serializer, SerializerError
 from serialization.autosave import AutoSave
 from ui.editor_view import EditorView
@@ -290,6 +292,15 @@ class MainWindow(QMainWindow):
         btn_generate.setStyleSheet(self._action_btn_style("#7a5a20"))
         btn_generate.clicked.connect(self._on_generate)
         layout.addWidget(btn_generate)
+
+        btn_populate = QPushButton("👾 Peupler")
+        btn_populate.setFixedHeight(30)
+        btn_populate.setToolTip(
+            "Place automatiquement les entites sur l'etage actif"
+        )
+        btn_populate.setStyleSheet(self._action_btn_style("#4a2a6a"))
+        btn_populate.clicked.connect(self._on_populate)
+        layout.addWidget(btn_populate)
 
         layout.addStretch()
 
@@ -763,6 +774,141 @@ class MainWindow(QMainWindow):
         self._update_status(
             f"Sprite efface sur {count} cellule(s) '{tool_label}'."
         )
+
+    # ------------------------------------------------------------------
+    # Slots  peuplement d'entites
+    # ------------------------------------------------------------------
+
+    @pyqtSlot()
+    def _on_populate(self) -> None:
+        """Ouvre le dialog de peuplement et lance le Populator."""
+        floor = self.model.get_active_floor()
+        if floor is None:
+            QMessageBox.warning(self, "Aucun etage",
+                                "Aucun etage actif.")
+            return
+
+        # Dialog de configuration des densites
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Peupler l'etage")
+        dlg.setFixedSize(400, 260)
+        dlg.setStyleSheet("background-color: #2b2b2b; color: #eeeeee;")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(10)
+
+        title = QLabel("Densites de peuplement")
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #f0c060;")
+        layout.addWidget(title)
+
+        sliders: dict[str, QSlider] = {}
+        labels:  dict[str, QLabel]  = {}
+
+        def make_slider_row(label: str, key: str,
+                            default: int, color: str) -> None:
+            row = QHBoxLayout()
+            lbl = QLabel(f"{label} :")
+            lbl.setFixedWidth(80)
+            lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
+            row.addWidget(lbl)
+
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(0, 50)
+            slider.setValue(default)
+            slider.setFixedHeight(22)
+            row.addWidget(slider)
+
+            val_lbl = QLabel(f"{default}%")
+            val_lbl.setFixedWidth(36)
+            val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+            val_lbl.setStyleSheet("color: #cccccc; font-size: 12px;")
+            row.addWidget(val_lbl)
+
+            slider.valueChanged.connect(
+                lambda v, l=val_lbl: l.setText(f"{v}%")
+            )
+
+            sliders[key] = slider
+            labels[key]  = val_lbl
+            layout.addLayout(row)
+
+        make_slider_row("Ennemis",  "enemy",    20, "#e06060")
+        make_slider_row("Tresors",  "treasure",  5, "#e0c040")
+        make_slider_row("Pieges",   "trap",      15, "#e08030")
+
+        note = QLabel(
+            "Les entites existantes seront effacees avant le placement."
+        )
+        note.setStyleSheet("color: #888888; font-size: 10px;")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.setStyleSheet("color: #ffffff;")
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        enemy_d    = sliders["enemy"].value()    / 100.0
+        treasure_d = sliders["treasure"].value() / 100.0
+        trap_d     = sliders["trap"].value()     / 100.0
+
+        pop = Populator()
+        report = pop.run(
+            floor,
+            enemy_density=enemy_d,
+            treasure_density=treasure_d,
+            trap_density=trap_d,
+        )
+
+        self.editor_view.refresh()
+        self._update_status(
+            f"Peuplement : {report.enemies_placed} ennemis, "
+            f"{report.treasures_placed} tresors, "
+            f"{report.traps_placed} pieges."
+        )
+        self._show_population_report(report)
+
+    def _show_population_report(self, report) -> None:
+        """Affiche le rapport de peuplement dans un dialog."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rapport de peuplement")
+        dlg.setMinimumSize(380, 260)
+        dlg.setStyleSheet("background-color: #2b2b2b; color: #eeeeee;")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        title = QLabel("Resultat du peuplement")
+        title.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #c080ff;"
+        )
+        layout.addWidget(title)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setStyleSheet(
+            "background-color: #1e1e1e; color: #cccccc; "
+            "font-family: monospace; font-size: 12px; "
+            "border: 1px solid #555555; border-radius: 4px;"
+        )
+        text.setPlainText(report.summary())
+        layout.addWidget(text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.setStyleSheet("color: #ffffff;")
+        buttons.accepted.connect(dlg.accept)
+        layout.addWidget(buttons)
+
+        dlg.exec()
 
     # ------------------------------------------------------------------
     # Slots  generation procedurale
