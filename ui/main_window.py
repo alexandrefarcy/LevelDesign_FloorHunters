@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QToolButton, QButtonGroup,
     QSizePolicy, QFrame, QScrollArea, QComboBox,
-    QStatusBar, QFileDialog, QMessageBox,
+    QStatusBar, QFileDialog, QMessageBox, QInputDialog,
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSlot
@@ -232,6 +232,18 @@ class MainWindow(QMainWindow):
         btn_del.clicked.connect(self._on_delete_floor)
         layout.addWidget(btn_del)
 
+        btn_dup = QPushButton("⧉ Dupliquer")
+        btn_dup.setFixedHeight(30)
+        btn_dup.setStyleSheet(self._action_btn_style("#4a5566"))
+        btn_dup.clicked.connect(self._on_duplicate_floor)
+        layout.addWidget(btn_dup)
+
+        btn_rename = QPushButton("✏ Renommer…")
+        btn_rename.setFixedHeight(30)
+        btn_rename.setStyleSheet(self._action_btn_style("#554a66"))
+        btn_rename.clicked.connect(self._on_rename_floor)
+        layout.addWidget(btn_rename)
+
         layout.addStretch()
 
         # --- Sélecteur de taille de pinceau ---
@@ -365,6 +377,42 @@ class MainWindow(QMainWindow):
         )
         self.floor_selector.setCurrentIndex(idx)
         self._update_status(f"Étage « {floor.name} » créé.")
+
+    @pyqtSlot()
+    def _on_duplicate_floor(self) -> None:
+        active = self.model.get_active_floor()
+        if active is None:
+            return
+        new_floor = self.model.duplicate_floor(active.floor_id)
+        self._refresh_floor_selector()
+        # Sélectionner le nouvel étage
+        idx = next(
+            i for i, f in enumerate(self.model.floors)
+            if f.floor_id == new_floor.floor_id
+        )
+        self.floor_selector.setCurrentIndex(idx)
+        self._update_status(f"Étage « {new_floor.name} » créé.")
+
+    @pyqtSlot()
+    def _on_rename_floor(self) -> None:
+        active = self.model.get_active_floor()
+        if active is None:
+            return
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Renommer l'étage",
+            "Nouveau nom :",
+            text=active.name,
+        )
+        if not ok:
+            return
+        try:
+            self.model.rename_floor(active.floor_id, new_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Nom invalide", str(exc))
+            return
+        self._refresh_floor_selector()
+        self._update_status(f"Étage renommé : « {new_name.strip()} »")
 
     @pyqtSlot()
     def _on_delete_floor(self) -> None:

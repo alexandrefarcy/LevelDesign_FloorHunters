@@ -320,6 +320,32 @@ class GridModel:
     def floor_count(self) -> int:
         return len(self.floors)
 
+    def duplicate_floor(self, floor_id: int) -> Floor:
+        """Clone un étage et l'insère juste après l'original.
+
+        Le clone reçoit un nouvel ID unique et un nom suffixé " (copie)".
+        Retourne le nouvel étage.
+        """
+        idx = self._floor_index(floor_id)
+        source = self.floors[idx]
+        new_id = self._next_id
+        self._next_id += 1
+        clone = source.clone()
+        clone.floor_id = new_id
+        clone.name = f"{source.name} (copie)"
+        self.floors.insert(idx + 1, clone)
+        return clone
+
+    def rename_floor(self, floor_id: int, new_name: str) -> None:
+        """Renomme un étage. Lève ValueError si introuvable.
+
+        Le nom est strippé des espaces — une chaîne vide est refusée.
+        """
+        new_name = new_name.strip()
+        if not new_name:
+            raise ValueError("Le nom d'un étage ne peut pas être vide.")
+        self.floors[self._floor_index(floor_id)].name = new_name
+
     def _floor_index(self, floor_id: int) -> int:
         for i, f in enumerate(self.floors):
             if f.floor_id == floor_id:
