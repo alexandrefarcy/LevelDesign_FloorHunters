@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QToolButton, QButtonGroup,
+    QPushButton, QLabel, QButtonGroup,
     QSizePolicy, QFrame, QScrollArea, QComboBox,
     QStatusBar, QFileDialog, QMessageBox, QInputDialog,
     QDialog, QTextEdit, QDialogButtonBox,
@@ -202,46 +202,20 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_floor_toolbar(self) -> QWidget:
-        """Construit la barre d'outils du haut pour la gestion des étages."""
+        """Construit la barre d'outils du haut -- deux lignes.
+
+        Ligne 1 : Fichier | Etage (selector + actions) | Generer / Peupler
+        Ligne 2 : Pinceau (QComboBox) | Zoom
+        """
         bar = QWidget()
-        bar.setFixedHeight(44)
+        bar.setFixedHeight(88)
         bar.setStyleSheet("background-color: #3c3c3c;")
 
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(10, 4, 10, 4)
-        layout.setSpacing(8)
+        outer = QVBoxLayout(bar)
+        outer.setContentsMargins(10, 4, 10, 4)
+        outer.setSpacing(4)
 
-        # Boutons fichier
-        btn_new = QPushButton("Nouveau")
-        btn_new.setFixedHeight(30)
-        btn_new.setStyleSheet(self._action_btn_style("#444455"))
-        btn_new.clicked.connect(self._on_new_project)
-        layout.addWidget(btn_new)
-
-        btn_open = QPushButton("Ouvrir…")
-        btn_open.setFixedHeight(30)
-        btn_open.setStyleSheet(self._action_btn_style("#445566"))
-        btn_open.clicked.connect(self._on_open_project)
-        layout.addWidget(btn_open)
-
-        btn_save = QPushButton("Enregistrer…")
-        btn_save.setFixedHeight(30)
-        btn_save.setStyleSheet(self._action_btn_style("#446644"))
-        btn_save.clicked.connect(self._on_save_project)
-        layout.addWidget(btn_save)
-
-        sep_file = QFrame()
-        sep_file.setFrameShape(QFrame.Shape.VLine)
-        sep_file.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(sep_file)
-
-        lbl = QLabel("Étage :")
-        lbl.setStyleSheet("color: #cccccc; font-size: 12px;")
-        layout.addWidget(lbl)
-
-        self.floor_selector = QComboBox()
-        self.floor_selector.setFixedWidth(160)
-        self.floor_selector.setStyleSheet("""
+        combo_style = """
             QComboBox {
                 background: #555555;
                 color: #ffffff;
@@ -251,102 +225,104 @@ class MainWindow(QMainWindow):
                 font-size: 12px;
             }
             QComboBox::drop-down { border: none; }
-        """)
+            QComboBox QAbstractItemView {
+                background: #444444;
+                color: #ffffff;
+                selection-background-color: #4a6fa5;
+            }
+        """
+
+        # ---- Ligne 1 : Fichier | Etage | Actions etage | Generer ----
+        row1 = QHBoxLayout()
+        row1.setContentsMargins(0, 0, 0, 0)
+        row1.setSpacing(6)
+
+        def btn(label, color, slot, tooltip=""):
+            b = QPushButton(label)
+            b.setFixedHeight(28)
+            b.setStyleSheet(self._action_btn_style(color))
+            b.clicked.connect(slot)
+            if tooltip:
+                b.setToolTip(tooltip)
+            return b
+
+        row1.addWidget(btn("Nouveau",      "#444455", self._on_new_project))
+        row1.addWidget(btn("Ouvrir...",    "#445566", self._on_open_project))
+        row1.addWidget(btn("Enregistrer...", "#446644", self._on_save_project))
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.Shape.VLine)
+        sep1.setFrameShadow(QFrame.Shadow.Sunken)
+        row1.addWidget(sep1)
+
+        lbl_floor = QLabel("Etage :")
+        lbl_floor.setStyleSheet("color: #cccccc; font-size: 12px;")
+        row1.addWidget(lbl_floor)
+
+        self.floor_selector = QComboBox()
+        self.floor_selector.setFixedWidth(150)
+        self.floor_selector.setStyleSheet(combo_style)
         self.floor_selector.currentIndexChanged.connect(self._on_floor_changed)
-        layout.addWidget(self.floor_selector)
+        row1.addWidget(self.floor_selector)
 
-        btn_add = QPushButton("+ Ajouter")
-        btn_add.setFixedHeight(30)
-        btn_add.setStyleSheet(self._action_btn_style("#4a7a4a"))
-        btn_add.clicked.connect(self._on_add_floor)
-        layout.addWidget(btn_add)
+        row1.addWidget(btn("+ Ajouter",    "#4a7a4a", self._on_add_floor))
+        row1.addWidget(btn("Supprimer",    "#7a4a4a", self._on_delete_floor))
+        row1.addWidget(btn("Dupliquer",    "#4a5566", self._on_duplicate_floor))
+        row1.addWidget(btn("Renommer...",  "#554a66", self._on_rename_floor))
 
-        btn_del = QPushButton("🗑 Supprimer")
-        btn_del.setFixedHeight(30)
-        btn_del.setStyleSheet(self._action_btn_style("#7a4a4a"))
-        btn_del.clicked.connect(self._on_delete_floor)
-        layout.addWidget(btn_del)
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.VLine)
+        sep2.setFrameShadow(QFrame.Shadow.Sunken)
+        row1.addWidget(sep2)
 
-        btn_dup = QPushButton("⧉ Dupliquer")
-        btn_dup.setFixedHeight(30)
-        btn_dup.setStyleSheet(self._action_btn_style("#4a5566"))
-        btn_dup.clicked.connect(self._on_duplicate_floor)
-        layout.addWidget(btn_dup)
+        row1.addWidget(btn(
+            "Generer", "#7a5a20", self._on_generate,
+            "Genere les couloirs, murs et escaliers sur l'etage actif",
+        ))
+        row1.addWidget(btn(
+            "Peupler", "#4a2a6a", self._on_populate,
+            "Place automatiquement les entites sur l'etage actif",
+        ))
 
-        btn_rename = QPushButton("✏ Renommer…")
-        btn_rename.setFixedHeight(30)
-        btn_rename.setStyleSheet(self._action_btn_style("#554a66"))
-        btn_rename.clicked.connect(self._on_rename_floor)
-        layout.addWidget(btn_rename)
+        row1.addStretch()
+        outer.addLayout(row1)
 
-        sep_gen = QFrame()
-        sep_gen.setFrameShape(QFrame.Shape.VLine)
-        sep_gen.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(sep_gen)
-
-        btn_generate = QPushButton("⚙ Générer")
-        btn_generate.setFixedHeight(30)
-        btn_generate.setToolTip(
-            "Génère les couloirs, murs et escaliers sur l'étage actif"
-        )
-        btn_generate.setStyleSheet(self._action_btn_style("#7a5a20"))
-        btn_generate.clicked.connect(self._on_generate)
-        layout.addWidget(btn_generate)
-
-        btn_populate = QPushButton("👾 Peupler")
-        btn_populate.setFixedHeight(30)
-        btn_populate.setToolTip(
-            "Place automatiquement les entites sur l'etage actif"
-        )
-        btn_populate.setStyleSheet(self._action_btn_style("#4a2a6a"))
-        btn_populate.clicked.connect(self._on_populate)
-        layout.addWidget(btn_populate)
-
-        layout.addStretch()
-
-        # --- Sélecteur de taille de pinceau ---
-        sep_brush = QFrame()
-        sep_brush.setFrameShape(QFrame.Shape.VLine)
-        sep_brush.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(sep_brush)
+        # ---- Ligne 2 : Pinceau (combobox) | Zoom ----
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(0, 0, 0, 0)
+        row2.setSpacing(6)
 
         lbl_brush = QLabel("Pinceau :")
         lbl_brush.setStyleSheet("color: #cccccc; font-size: 12px;")
-        layout.addWidget(lbl_brush)
+        row2.addWidget(lbl_brush)
 
-        self._brush_button_group = QButtonGroup(self)
-        self._brush_button_group.setExclusive(True)
-
+        self.brush_combo = QComboBox()
+        self.brush_combo.setFixedWidth(90)
+        self.brush_combo.setStyleSheet(combo_style)
         for size in BRUSH_SIZES:
-            btn = QToolButton()
-            btn.setText(f"{size}×{size}")
-            btn.setCheckable(True)
-            btn.setFixedSize(42, 30)
-            btn.setProperty("brush_size", size)
-            btn.setStyleSheet(self._action_btn_style(
-                "#4a6fa5" if size == BRUSH_SIZE_DEFAULT else "#444444"
-            ))
-            if size == BRUSH_SIZE_DEFAULT:
-                btn.setChecked(True)
-            btn.toggled.connect(
-                lambda checked, b=btn: self._on_brush_toggled(checked, b)
-            )
-            self._brush_button_group.addButton(btn)
-            layout.addWidget(btn)
+            self.brush_combo.addItem(f"{size}x{size}", userData=size)
+        default_idx = BRUSH_SIZES.index(BRUSH_SIZE_DEFAULT)
+        self.brush_combo.setCurrentIndex(default_idx)
+        self.brush_combo.currentIndexChanged.connect(self._on_brush_combo_changed)
+        row2.addWidget(self.brush_combo)
 
-        sep_zoom = QFrame()
-        sep_zoom.setFrameShape(QFrame.Shape.VLine)
-        sep_zoom.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(sep_zoom)
+        sep3 = QFrame()
+        sep3.setFrameShape(QFrame.Shape.VLine)
+        sep3.setFrameShadow(QFrame.Shadow.Sunken)
+        row2.addWidget(sep3)
+
         self.zoom_label = QLabel("Zoom: 100%")
         self.zoom_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
-        layout.addWidget(self.zoom_label)
+        row2.addWidget(self.zoom_label)
 
-        btn_reset_zoom = QPushButton("Réinitialiser vue")
-        btn_reset_zoom.setFixedHeight(30)
+        btn_reset_zoom = QPushButton("Reinitialiser vue")
+        btn_reset_zoom.setFixedHeight(28)
         btn_reset_zoom.setStyleSheet(self._action_btn_style("#555555"))
         btn_reset_zoom.clicked.connect(self._on_reset_zoom)
-        layout.addWidget(btn_reset_zoom)
+        row2.addWidget(btn_reset_zoom)
+
+        row2.addStretch()
+        outer.addLayout(row2)
 
         return bar
 
@@ -392,17 +368,13 @@ class MainWindow(QMainWindow):
     # Slots  outils
     # ------------------------------------------------------------------
 
-    @pyqtSlot(bool)
-    def _on_brush_toggled(self, checked: bool, btn: QToolButton) -> None:
-        if checked:
-            size = btn.property("brush_size")
+    @pyqtSlot(int)
+    def _on_brush_combo_changed(self, index: int) -> None:
+        size = self.brush_combo.itemData(index)
+        if size is not None:
             self._active_brush_size = size
             self.editor_view.set_brush_size(size)
-            for b in self._brush_button_group.buttons():
-                b.setStyleSheet(self._action_btn_style(
-                    "#4a6fa5" if b is btn else "#444444"
-                ))
-            self._update_status(f"Pinceau : {size}×{size}")
+            self._update_status(f"Pinceau : {size}x{size}")
 
     @pyqtSlot(bool)
     def _on_tool_toggled(self, checked: bool, btn: QToolButton) -> None:
