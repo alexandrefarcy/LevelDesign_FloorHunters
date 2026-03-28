@@ -13,6 +13,9 @@ Fonctionnalités :
 
 from __future__ import annotations
 
+import copy
+from collections import deque
+
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 from PyQt6.QtGui import (
@@ -24,7 +27,7 @@ from core.grid import (
     CellType, GridModel, GRID_SIZE, HALF,
     CELL_COLORS, CELL_LABELS,
 )
-from ui.constants import TOOL_ERASER
+from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT, UNDO_MAX_LEVELS
 
 # Taille d'une cellule en pixels dans la QPixmap
 CELL_PX = 16
@@ -64,15 +67,22 @@ class EditorView(QGraphicsView):
     cell_hovered = pyqtSignal(int, int)
     cell_hovered_cleared = pyqtSignal()
     cell_painted = pyqtSignal(int, int, str)
+    tool_shortcut_requested = pyqtSignal(str)  # émis quand E pressé → TOOL_ERASER
 
     def __init__(self, model: GridModel, parent=None) -> None:
         super().__init__(parent)
         self.model = model
         self._active_tool: CellType | str = CellType.GROUND
+        self._brush_size: int = BRUSH_SIZE_DEFAULT
         self._is_drawing = False       # drag en cours
         self._is_panning = False       # pan en cours
         self._pan_start = QPointF()    # position souris au début du pan
         self._zoom_factor = 1.0        # facteur de zoom courant
+
+        # Historique undo/redo — snapshots de grille par coup de pinceau
+        self._undo_stack: deque[list[list]] = deque(maxlen=UNDO_MAX_LEVELS)
+        self._redo_stack: deque[list[list]] = deque(maxlen=UNDO_MAX_LEVELS)
+        self._snapshot_before: list[list] | None = None  # snapshot au mousePress
 
         # --- Scène ---
         self._scene = QGraphicsScene(self)
@@ -92,6 +102,7 @@ class EditorView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # reçoit les touches clavier
 
         # Premier rendu
         self.refresh()
@@ -103,9 +114,44 @@ class EditorView(QGraphicsView):
     def set_active_tool(self, tool: CellType | str) -> None:
         self._active_tool = tool
 
+    def set_brush_size(self, size: int) -> None:
+        """Définit la taille du pinceau (doit être dans BRUSH_SIZES)."""
+        if size in BRUSH_SIZES:
+            self._brush_size = size
+
+    @property
+    def brush_size(self) -> int:
+        return self._brush_size
+
     @property
     def current_zoom(self) -> float:
         return self._zoom_factor
+
+    def undo(self) -> bool:
+        """Annule le dernier coup de pinceau. Retourne True si undo effectué."""
+        if not self._undo_stack:
+            return False
+        floor = self.model.get_active_floor()
+        if floor is None:
+            return False
+        # Sauvegarde l'état courant dans redo
+        self._redo_stack.append(self._clone_grid(floor))
+        # Restaure l'état précédent
+        self._restore_grid(floor, self._undo_stack.pop())
+        self.refresh()
+        return True
+
+    def redo(self) -> bool:
+        """Rétablit le dernier coup de pinceau annulé. Retourne True si redo effectué."""
+        if not self._redo_stack:
+            return False
+        floor = self.model.get_active_floor()
+        if floor is None:
+            return False
+        self._undo_stack.append(self._clone_grid(floor))
+        self._restore_grid(floor, self._redo_stack.pop())
+        self.refresh()
+        return True
 
     def refresh(self) -> None:
         """Redessine entièrement la pixmap depuis le modèle actif."""
@@ -121,6 +167,18 @@ class EditorView(QGraphicsView):
         self.resetTransform()
         self._zoom_factor = 1.0
         self.centerOn(self._pixmap_item)
+
+    # ------------------------------------------------------------------
+    # Utilitaires undo/redo
+    # ------------------------------------------------------------------
+
+    def _clone_grid(self, floor) -> list[list]:
+        """Retourne une copie profonde de la grille de l'étage."""
+        return copy.deepcopy(floor.grid)
+
+    def _restore_grid(self, floor, grid_snapshot: list[list]) -> None:
+        """Restaure la grille d'un étage depuis un snapshot."""
+        floor.grid = grid_snapshot
 
     # ------------------------------------------------------------------
     # Rendu
@@ -254,31 +312,39 @@ class EditorView(QGraphicsView):
     # Pose d'une cellule
     # ------------------------------------------------------------------
 
-    def _paint_at(self, scene_pos: QPointF) -> None:
-        """Pose ou efface une cellule à la position scène donnée."""
+    def _paint_brush(self, scene_pos: QPointF) -> None:
+        """Pose ou efface un carré de cellules centré sur la position scène."""
         rc = self._scene_pos_to_grid(scene_pos)
         if rc is None:
             return
-        row, col = rc
+        center_row, center_col = rc
 
         floor = self.model.get_active_floor()
         if floor is None:
             return
 
-        if self._active_tool == TOOL_ERASER:
-            cell_type = CellType.EMPTY
-        else:
-            cell_type = self._active_tool
+        cell_type = CellType.EMPTY if self._active_tool == TOOL_ERASER \
+            else self._active_tool
 
-        # Ne rien faire si la cellule est déjà du bon type
-        if floor.grid[row][col].cell_type == cell_type:
-            return
+        half = self._brush_size // 2
+        painted_any = False
 
-        floor.set_cell(row, col, cell_type)
-        self._repaint_cell(row, col)
+        for dr in range(-half, self._brush_size - half):
+            for dc in range(-half, self._brush_size - half):
+                row = center_row + dr
+                col = center_col + dc
+                if not (0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE):
+                    continue
+                if floor.grid[row][col].cell_type == cell_type:
+                    continue
+                floor.set_cell(row, col, cell_type)
+                self._repaint_cell(row, col)
+                painted_any = True
 
-        x, y = GridModel.index_to_coords(row, col)
-        self.cell_painted.emit(x, y, cell_type.value)
+        if painted_any:
+            # Émet le signal sur la cellule centrale uniquement
+            x, y = GridModel.index_to_coords(center_row, center_col)
+            self.cell_painted.emit(x, y, cell_type.value)
 
     # ------------------------------------------------------------------
     # Événements souris
@@ -287,8 +353,13 @@ class EditorView(QGraphicsView):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._is_drawing = True
+            # Snapshot de la grille avant le coup de pinceau (pour undo)
+            floor = self.model.get_active_floor()
+            if floor is not None:
+                self._snapshot_before = self._clone_grid(floor)
+            self._redo_stack.clear()  # un nouveau dessin invalide le redo
             scene_pos = self.mapToScene(event.pos())
-            self._paint_at(scene_pos)
+            self._paint_brush(scene_pos)
         elif event.button() in (
             Qt.MouseButton.MiddleButton,
             Qt.MouseButton.RightButton,
@@ -296,8 +367,6 @@ class EditorView(QGraphicsView):
             self._is_panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
-        # Ne pas appeler super() pour le clic gauche afin d'éviter
-        # les comportements Qt non désirés (rubber band, sélection…)
         else:
             super().mousePressEvent(event)
 
@@ -313,7 +382,7 @@ class EditorView(QGraphicsView):
 
         # Dessin par drag
         if self._is_drawing:
-            self._paint_at(scene_pos)
+            self._paint_brush(scene_pos)
 
         # Pan
         if self._is_panning:
@@ -331,6 +400,10 @@ class EditorView(QGraphicsView):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._is_drawing = False
+            # Push le snapshot pré-dessin dans l'undo stack
+            if self._snapshot_before is not None:
+                self._undo_stack.append(self._snapshot_before)
+                self._snapshot_before = None
         elif event.button() in (
             Qt.MouseButton.MiddleButton,
             Qt.MouseButton.RightButton,
@@ -343,6 +416,16 @@ class EditorView(QGraphicsView):
         """Notifie main_window que le curseur a quitté la grille."""
         self.cell_hovered_cleared.emit()
         super().leaveEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        """Raccourcis clavier gérés directement sur le canvas."""
+        key = event.key()
+        if key == Qt.Key.Key_E:
+            self.tool_shortcut_requested.emit(TOOL_ERASER)
+        elif key == Qt.Key.Key_Space:
+            self.reset_zoom()
+        else:
+            super().keyPressEvent(event)
 
     # ------------------------------------------------------------------
     # Zoom molette

@@ -20,12 +20,12 @@ from PyQt6.QtWidgets import (
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
 from serialization.serializer import Serializer, SerializerError
 from ui.editor_view import EditorView
-from ui.constants import TOOL_ERASER
+from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT
 
 
 class MainWindow(QMainWindow):
@@ -43,6 +43,9 @@ class MainWindow(QMainWindow):
 
         # --- Outil actif (CellType ou TOOL_ERASER) ---
         self._active_tool: CellType | str = CellType.GROUND
+
+        # --- Taille de pinceau active ---
+        self._active_brush_size: int = BRUSH_SIZE_DEFAULT
 
         # --- Chemin du fichier courant ---
         self._current_path: Path | None = None
@@ -95,6 +98,11 @@ class MainWindow(QMainWindow):
         self.editor_view.cell_hovered.connect(self._on_cell_hovered)
         self.editor_view.cell_hovered_cleared.connect(self._on_cell_hovered_cleared)
         self.editor_view.cell_painted.connect(self._on_cell_painted)
+        self.editor_view.tool_shortcut_requested.connect(self._on_tool_shortcut)
+
+        # Raccourcis Ctrl+Z / Ctrl+Y
+        QShortcut(QKeySequence.StandardKey.Undo, self).activated.connect(self._on_undo)
+        QShortcut(QKeySequence.StandardKey.Redo, self).activated.connect(self._on_redo)
         right_layout.addWidget(self.editor_view, stretch=1)
 
         right_widget = QWidget()
@@ -226,7 +234,40 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        # Indicateur zoom
+        # --- Sélecteur de taille de pinceau ---
+        sep_brush = QFrame()
+        sep_brush.setFrameShape(QFrame.Shape.VLine)
+        sep_brush.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep_brush)
+
+        lbl_brush = QLabel("Pinceau :")
+        lbl_brush.setStyleSheet("color: #cccccc; font-size: 12px;")
+        layout.addWidget(lbl_brush)
+
+        self._brush_button_group = QButtonGroup(self)
+        self._brush_button_group.setExclusive(True)
+
+        for size in BRUSH_SIZES:
+            btn = QToolButton()
+            btn.setText(f"{size}×{size}")
+            btn.setCheckable(True)
+            btn.setFixedSize(42, 30)
+            btn.setProperty("brush_size", size)
+            btn.setStyleSheet(self._action_btn_style(
+                "#4a6fa5" if size == BRUSH_SIZE_DEFAULT else "#444444"
+            ))
+            if size == BRUSH_SIZE_DEFAULT:
+                btn.setChecked(True)
+            btn.toggled.connect(
+                lambda checked, b=btn: self._on_brush_toggled(checked, b)
+            )
+            self._brush_button_group.addButton(btn)
+            layout.addWidget(btn)
+
+        sep_zoom = QFrame()
+        sep_zoom.setFrameShape(QFrame.Shape.VLine)
+        sep_zoom.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep_zoom)
         self.zoom_label = QLabel("Zoom: 100%")
         self.zoom_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         layout.addWidget(self.zoom_label)
@@ -280,6 +321,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Slots — outils
     # ------------------------------------------------------------------
+
+    @pyqtSlot(bool)
+    def _on_brush_toggled(self, checked: bool, btn: QToolButton) -> None:
+        if checked:
+            size = btn.property("brush_size")
+            self._active_brush_size = size
+            self.editor_view.set_brush_size(size)
+            for b in self._brush_button_group.buttons():
+                b.setStyleSheet(self._action_btn_style(
+                    "#4a6fa5" if b is btn else "#444444"
+                ))
+            self._update_status(f"Pinceau : {size}×{size}")
 
     @pyqtSlot(bool)
     def _on_tool_toggled(self, checked: bool, btn: QToolButton) -> None:
@@ -349,6 +402,26 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_cell_hovered_cleared(self) -> None:
         self._update_status("Prêt — cliquez sur la grille pour dessiner.")
+
+    @pyqtSlot()
+    def _on_undo(self) -> None:
+        if self.editor_view.undo():
+            self._update_status("Annulé.")
+            self._update_zoom_label()
+
+    @pyqtSlot()
+    def _on_redo(self) -> None:
+        if self.editor_view.redo():
+            self._update_status("Rétabli.")
+            self._update_zoom_label()
+
+    @pyqtSlot(str)
+    def _on_tool_shortcut(self, tool_id: str) -> None:
+        """Sélectionne l'outil via raccourci clavier (ex. E → gomme)."""
+        for btn in self._tool_button_group.buttons():
+            if btn.property("tool_id") == tool_id:
+                btn.setChecked(True)
+                break
 
     @pyqtSlot(int, int, str)
     def _on_cell_painted(self, x: int, y: int, cell_type_value: str) -> None:
