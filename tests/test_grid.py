@@ -161,7 +161,7 @@ class TestFloor(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# GridModel — conversion de coordonnées
+# GridModel  conversion de coordonnées
 # ---------------------------------------------------------------------------
 
 class TestCoordConversion(unittest.TestCase):
@@ -215,7 +215,7 @@ class TestCoordConversion(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# GridModel — gestion des étages
+# GridModel  gestion des étages
 # ---------------------------------------------------------------------------
 
 class TestGridModel(unittest.TestCase):

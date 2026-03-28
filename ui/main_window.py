@@ -16,14 +16,17 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QToolButton, QButtonGroup,
     QSizePolicy, QFrame, QScrollArea, QComboBox,
-    QStatusBar, QFileDialog, QMessageBox,
+    QStatusBar, QFileDialog, QMessageBox, QInputDialog,
+    QDialog, QTextEdit, QDialogButtonBox,
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
+from core.generator import Generator
 from serialization.serializer import Serializer, SerializerError
+from serialization.autosave import AutoSave
 from ui.editor_view import EditorView
 from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT
 
@@ -54,7 +57,13 @@ class MainWindow(QMainWindow):
         # --- Construction de l'UI ---
         self._build_ui()
         self._refresh_floor_selector()
-        self._update_status("Prêt — cliquez sur la grille pour dessiner.")
+        self._update_status("Prêt  cliquez sur la grille pour dessiner.")
+
+        # --- Autosave ---
+        self._autosave = AutoSave(self.model, self._serializer)
+        self._autosave.saved.connect(self._on_autosave_saved)
+        self._autosave.failed.connect(self._on_autosave_failed)
+        self._autosave.start()
 
     # ------------------------------------------------------------------
     # Construction de l'interface
@@ -164,6 +173,30 @@ class MainWindow(QMainWindow):
             layout.addWidget(btn)
 
         layout.addStretch()
+
+        # --- Boutons sprite personnalise ---
+        sep_sprite = QFrame()
+        sep_sprite.setFrameShape(QFrame.Shape.HLine)
+        sep_sprite.setFrameShadow(QFrame.Shadow.Sunken)
+        sep_sprite.setStyleSheet("color: #555555;")
+        layout.addWidget(sep_sprite)
+
+        btn_sprite = QPushButton("🖼 Sprite…")
+        btn_sprite.setFixedSize(108, 30)
+        btn_sprite.setToolTip(
+            "Assigner une image personnalisee a l'outil actif"
+        )
+        btn_sprite.setStyleSheet(self._action_btn_style("#5a4a7a"))
+        btn_sprite.clicked.connect(self._on_set_sprite)
+        layout.addWidget(btn_sprite)
+
+        btn_clear_sprite = QPushButton("✕ Sprite")
+        btn_clear_sprite.setFixedSize(108, 30)
+        btn_clear_sprite.setToolTip("Effacer le sprite personnalise de l'outil actif")
+        btn_clear_sprite.setStyleSheet(self._action_btn_style("#5a3a3a"))
+        btn_clear_sprite.clicked.connect(self._on_clear_sprite)
+        layout.addWidget(btn_clear_sprite)
+
         return panel
 
     def _build_floor_toolbar(self) -> QWidget:
@@ -231,6 +264,32 @@ class MainWindow(QMainWindow):
         btn_del.setStyleSheet(self._action_btn_style("#7a4a4a"))
         btn_del.clicked.connect(self._on_delete_floor)
         layout.addWidget(btn_del)
+
+        btn_dup = QPushButton("⧉ Dupliquer")
+        btn_dup.setFixedHeight(30)
+        btn_dup.setStyleSheet(self._action_btn_style("#4a5566"))
+        btn_dup.clicked.connect(self._on_duplicate_floor)
+        layout.addWidget(btn_dup)
+
+        btn_rename = QPushButton("✏ Renommer…")
+        btn_rename.setFixedHeight(30)
+        btn_rename.setStyleSheet(self._action_btn_style("#554a66"))
+        btn_rename.clicked.connect(self._on_rename_floor)
+        layout.addWidget(btn_rename)
+
+        sep_gen = QFrame()
+        sep_gen.setFrameShape(QFrame.Shape.VLine)
+        sep_gen.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep_gen)
+
+        btn_generate = QPushButton("⚙ Générer")
+        btn_generate.setFixedHeight(30)
+        btn_generate.setToolTip(
+            "Génère les couloirs, murs et escaliers sur l'étage actif"
+        )
+        btn_generate.setStyleSheet(self._action_btn_style("#7a5a20"))
+        btn_generate.clicked.connect(self._on_generate)
+        layout.addWidget(btn_generate)
 
         layout.addStretch()
 
@@ -319,7 +378,7 @@ class MainWindow(QMainWindow):
         """
 
     # ------------------------------------------------------------------
-    # Slots — outils
+    # Slots  outils
     # ------------------------------------------------------------------
 
     @pyqtSlot(bool)
@@ -350,7 +409,7 @@ class MainWindow(QMainWindow):
             self._update_status(f"Outil sélectionné : {label}")
 
     # ------------------------------------------------------------------
-    # Slots — étages
+    # Slots  étages
     # ------------------------------------------------------------------
 
     @pyqtSlot()
@@ -365,6 +424,42 @@ class MainWindow(QMainWindow):
         )
         self.floor_selector.setCurrentIndex(idx)
         self._update_status(f"Étage « {floor.name} » créé.")
+
+    @pyqtSlot()
+    def _on_duplicate_floor(self) -> None:
+        active = self.model.get_active_floor()
+        if active is None:
+            return
+        new_floor = self.model.duplicate_floor(active.floor_id)
+        self._refresh_floor_selector()
+        # Sélectionner le nouvel étage
+        idx = next(
+            i for i, f in enumerate(self.model.floors)
+            if f.floor_id == new_floor.floor_id
+        )
+        self.floor_selector.setCurrentIndex(idx)
+        self._update_status(f"Étage « {new_floor.name} » créé.")
+
+    @pyqtSlot()
+    def _on_rename_floor(self) -> None:
+        active = self.model.get_active_floor()
+        if active is None:
+            return
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Renommer l'étage",
+            "Nouveau nom :",
+            text=active.name,
+        )
+        if not ok:
+            return
+        try:
+            self.model.rename_floor(active.floor_id, new_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Nom invalide", str(exc))
+            return
+        self._refresh_floor_selector()
+        self._update_status(f"Étage renommé : « {new_name.strip()} »")
 
     @pyqtSlot()
     def _on_delete_floor(self) -> None:
@@ -392,7 +487,7 @@ class MainWindow(QMainWindow):
         self.editor_view.reset_zoom()
 
     # ------------------------------------------------------------------
-    # Slots — canvas
+    # Slots  canvas
     # ------------------------------------------------------------------
 
     @pyqtSlot(int, int)
@@ -401,7 +496,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_cell_hovered_cleared(self) -> None:
-        self._update_status("Prêt — cliquez sur la grille pour dessiner.")
+        self._update_status("Prêt  cliquez sur la grille pour dessiner.")
 
     @pyqtSlot()
     def _on_undo(self) -> None:
@@ -434,7 +529,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Slots — fichier
+    # Slots  fichier
     # ------------------------------------------------------------------
 
     @pyqtSlot()
@@ -457,49 +552,317 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_open_project(self) -> None:
+        """Ouvre un projet complet (.tdp.json) ou un export Godot (.json)."""
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Ouvrir un projet",
             str(self._current_path.parent if self._current_path else Path.home()),
-            "Tower Dungeon JSON (*.json);;Tous les fichiers (*)",
+            "Projet Tower Dungeon (*.tdp.json);;Export Godot (*.json);;Tous les fichiers (*)",
         )
         if not path_str:
             return
         path = Path(path_str)
+
         try:
-            model = self._serializer.load(path)
+            # Detecte le format selon l'extension
+            if path.name.endswith(".tdp.json"):
+                model = self._serializer.load_project(path)
+                fmt = "projet"
+            else:
+                model = self._serializer.load(path)
+                fmt = "export Godot"
         except SerializerError as exc:
             QMessageBox.critical(self, "Erreur d'ouverture", str(exc))
             return
+
         self.model = model
         self.editor_view.model = model
+        self._autosave.set_model(model)
         self._current_path = path
-        self.setWindowTitle(f"Tower Dungeon Level Editor — {path.name}")
+        n = model.floor_count
+        self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
         self._refresh_floor_selector()
         self.editor_view.refresh()
-        self._update_status(f"Projet chargé : {path.name}")
+        self._update_status(
+            f"Projet charge ({fmt}) : {path.name}  --  {n} etage(s)"
+        )
 
     @pyqtSlot()
     def _on_save_project(self) -> None:
-        path_str, _ = QFileDialog.getSaveFileName(
+        """Enregistre le projet.
+
+        Propose deux options :
+          - Projet complet (.tdp.json) : tous les etages, rechargeable
+          - Export Godot (.json)       : etage actif uniquement, pour Godot
+        """
+        # Choix du mode de sauvegarde
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Enregistrer")
+        dlg.setFixedSize(380, 160)
+        dlg.setStyleSheet("background-color: #2b2b2b; color: #eeeeee;")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        lbl = QLabel("Que voulez-vous enregistrer ?")
+        lbl.setStyleSheet("font-size: 12px; color: #dddddd;")
+        layout.addWidget(lbl)
+
+        btn_layout = QHBoxLayout()
+
+        btn_project = QPushButton("Projet complet\n(tous les etages)")
+        btn_project.setFixedHeight(48)
+        btn_project.setStyleSheet(self._action_btn_style("#446644"))
+        btn_project.clicked.connect(lambda: dlg.done(1))
+        btn_layout.addWidget(btn_project)
+
+        btn_godot = QPushButton("Export Godot\n(etage actif)")
+        btn_godot.setFixedHeight(48)
+        btn_godot.setStyleSheet(self._action_btn_style("#445566"))
+        btn_godot.clicked.connect(lambda: dlg.done(2))
+        btn_layout.addWidget(btn_godot)
+
+        btn_cancel = QPushButton("Annuler")
+        btn_cancel.setFixedHeight(48)
+        btn_cancel.setStyleSheet(self._action_btn_style("#555555"))
+        btn_cancel.clicked.connect(lambda: dlg.done(0))
+        btn_layout.addWidget(btn_cancel)
+
+        layout.addLayout(btn_layout)
+        choice = dlg.exec()
+
+        if choice == 0:
+            return
+
+        if choice == 1:
+            # Sauvegarde projet complet
+            default = str(
+                self._current_path if (
+                    self._current_path and self._current_path.name.endswith(".tdp.json")
+                ) else Path.home() / "projet.tdp.json"
+            )
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Enregistrer le projet complet",
+                default,
+                "Projet Tower Dungeon (*.tdp.json);;Tous les fichiers (*)",
+            )
+            if not path_str:
+                return
+            path = Path(path_str)
+            if not path_str.endswith(".tdp.json"):
+                path = Path(path_str + ".tdp.json") if not path_str.endswith(".json") \
+                    else path.with_suffix("").with_suffix(".tdp.json")
+            try:
+                self._serializer.save_project(self.model, path)
+            except SerializerError as exc:
+                QMessageBox.critical(self, "Erreur de sauvegarde", str(exc))
+                return
+            self._current_path = path
+            n = self.model.floor_count
+            self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
+            self._update_status(
+                f"Projet sauvegarde : {path.name}  --  {n} etage(s)"
+            )
+
+        else:
+            # Export Godot etage actif
+            default = str(
+                self._current_path if (
+                    self._current_path and not self._current_path.name.endswith(".tdp.json")
+                ) else Path.home() / "level_1.json"
+            )
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Exporter l'etage actif (Godot)",
+                default,
+                "Export Godot JSON (*.json);;Tous les fichiers (*)",
+            )
+            if not path_str:
+                return
+            path = Path(path_str)
+            if not path_str.endswith(".json"):
+                path = path.with_suffix(".json")
+            try:
+                self._serializer.save(self.model, path)
+            except SerializerError as exc:
+                QMessageBox.critical(self, "Erreur d'export", str(exc))
+                return
+            self._update_status(f"Export Godot : {path.name}")
+
+
+
+    # ------------------------------------------------------------------
+    # Slots  sprites personnalises
+    # ------------------------------------------------------------------
+
+    @pyqtSlot()
+    def _on_set_sprite(self) -> None:
+        """Ouvre un dialog pour choisir une image et l'assigner a l'outil actif."""
+        if self._active_tool == TOOL_ERASER:
+            self._update_status("Impossible : la gomme n'a pas de sprite.")
+            return
+
+        path_str, _ = QFileDialog.getOpenFileName(
             self,
-            "Enregistrer le projet",
-            str(self._current_path if self._current_path else Path.home() / "projet.json"),
-            "Tower Dungeon JSON (*.json);;Tous les fichiers (*)",
+            "Choisir un sprite",
+            str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tous les fichiers (*)",
         )
         if not path_str:
             return
-        path = Path(path_str)
-        if not path_str.endswith(".json"):
-            path = path.with_suffix(".json")
-        try:
-            self._serializer.save(self.model, path)
-        except SerializerError as exc:
-            QMessageBox.critical(self, "Erreur de sauvegarde", str(exc))
+
+        # Stocke le chemin relatif si possible, absolu sinon
+        rel = self._serializer.make_relative(path_str)
+
+        # Applique le sprite a toutes les cellules du type actif sur l'etage actif
+        floor = self.model.get_active_floor()
+        if floor is None:
             return
-        self._current_path = path
-        self.setWindowTitle(f"Tower Dungeon Level Editor — {path.name}")
-        self._update_status(f"Projet sauvegardé : {path.name}")
+
+        from core.grid import GRID_SIZE as _GS
+        count = 0
+        for r in range(_GS):
+            for c in range(_GS):
+                cell = floor.grid[r][c]
+                if cell.cell_type == self._active_tool:
+                    cell.custom_image = rel
+                    count += 1
+
+        self.editor_view.refresh()
+        tool_label = getattr(self._active_tool, "value",
+                             str(self._active_tool))
+        self._update_status(
+            f"Sprite assigne a {count} cellule(s) '{tool_label}' : {Path(path_str).name}"
+        )
+
+    @pyqtSlot()
+    def _on_clear_sprite(self) -> None:
+        """Efface le sprite personnalise de toutes les cellules du type actif."""
+        if self._active_tool == TOOL_ERASER:
+            self._update_status("Impossible : la gomme n'a pas de sprite.")
+            return
+
+        floor = self.model.get_active_floor()
+        if floor is None:
+            return
+
+        from core.grid import GRID_SIZE as _GS
+        count = 0
+        for r in range(_GS):
+            for c in range(_GS):
+                cell = floor.grid[r][c]
+                if cell.cell_type == self._active_tool and cell.custom_image:
+                    cell.custom_image = None
+                    count += 1
+
+        self.editor_view.refresh()
+        tool_label = getattr(self._active_tool, "value",
+                             str(self._active_tool))
+        self._update_status(
+            f"Sprite efface sur {count} cellule(s) '{tool_label}'."
+        )
+
+    # ------------------------------------------------------------------
+    # Slots  generation procedurale
+    # ------------------------------------------------------------------
+
+    @pyqtSlot()
+    def _on_generate(self) -> None:
+        """Lance le generateur procedural sur l'etage actif et affiche le rapport."""
+        floor = self.model.get_active_floor()
+        if floor is None:
+            QMessageBox.warning(
+                self,
+                "Aucun etage",
+                "Aucun etage actif. Ajoutez un etage avant de generer.",
+            )
+            return
+
+        # Confirmation si l'etage contient deja des murs ou couloirs generés
+        has_walls = any(
+            floor.grid[r][c].cell_type.value == "wall"
+            for r in range(72)
+            for c in range(72)
+        )
+        if has_walls:
+            reply = QMessageBox.question(
+                self,
+                "Regenerer ?",
+                "L'etage contient deja des murs generes.\n"
+                "Lancer la generation va ajouter couloirs et murs par-dessus.\n\n"
+                "Continuer ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        gen = Generator()
+        report = gen.run(floor)
+
+        # Rafraichit le canvas pour afficher le resultat
+        self.editor_view.refresh()
+        self._update_status(
+            f"Generation terminee : {report.rooms_kept} salles, "
+            f"{report.corridors_traced} couloirs, "
+            f"{report.transitions_added} transitions, "
+            f"{report.walls_placed} murs."
+        )
+
+        # Affiche le rapport detaille
+        self._show_generation_report(report)
+
+    def _show_generation_report(self, report) -> None:
+        """Affiche un dialog non-bloquant avec le rapport de generation."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rapport de generation")
+        dlg.setMinimumSize(420, 320)
+        dlg.setStyleSheet("background-color: #2b2b2b; color: #eeeeee;")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        title = QLabel("Resultat de la generation procedurale")
+        title.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #f0c060;"
+        )
+        layout.addWidget(title)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setStyleSheet(
+            "background-color: #1e1e1e; color: #cccccc; "
+            "font-family: monospace; font-size: 12px; "
+            "border: 1px solid #555555; border-radius: 4px;"
+        )
+        text.setPlainText(report.summary())
+        layout.addWidget(text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.setStyleSheet("color: #ffffff;")
+        buttons.accepted.connect(dlg.accept)
+        layout.addWidget(buttons)
+
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Slots  autosave
+    # ------------------------------------------------------------------
+
+    @pyqtSlot(str)
+    def _on_autosave_saved(self, path: str) -> None:
+        """Affiche une confirmation discrete dans la barre de statut."""
+        from pathlib import Path as _Path
+        self.status_bar.showMessage(
+            f"Autosave OK  --  {_Path(path).name}", 4000
+        )
+
+    @pyqtSlot(str)
+    def _on_autosave_failed(self, error: str) -> None:
+        """Affiche une alerte discrete en cas d'echec autosave."""
+        self.status_bar.showMessage(f"Autosave echoue : {error}", 6000)
 
     def _refresh_floor_selector(self) -> None:
         """Resynchronise le sélecteur d'étages avec le modèle."""

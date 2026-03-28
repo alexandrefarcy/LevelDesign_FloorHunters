@@ -10,8 +10,23 @@ import sys
 from PyQt6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
+REQUIRED_PACKAGES = [
+    ("PyQt6",    "PyQt6"),
+    ("networkx", "networkx"),
+    ("numpy",    "numpy"),   # exemple
+]
+
+def check_dependencies() -> None:
+    for package_name, import_name in REQUIRED_PACKAGES:
+        try:
+            __import__(import_name)
+        except ImportError:
+            print(f"Erreur : le package {package_name} n'est pas installé.")
+            sys.exit(1)
+
 
 def main() -> None:
+    check_dependencies()
     app = QApplication(sys.argv)
     app.setApplicationName("Tower Dungeon Level Editor")
     app.setOrganizationName("TowerDungeon")

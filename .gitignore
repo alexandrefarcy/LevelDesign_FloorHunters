@@ -32,6 +32,7 @@ build/
 *.exe
 *.app
 dist/
+test/
 
 # =====================================================
 # IDE & OS
@@ -46,3 +47,4 @@ Thumbs.db
 .DS_Store
 desktop.ini
 _Doc/PROMPT_TRANSFERT_TOWER_DUNGEON.md
+*.py
