@@ -173,6 +173,30 @@ class MainWindow(QMainWindow):
             layout.addWidget(btn)
 
         layout.addStretch()
+
+        # --- Boutons sprite personnalise ---
+        sep_sprite = QFrame()
+        sep_sprite.setFrameShape(QFrame.Shape.HLine)
+        sep_sprite.setFrameShadow(QFrame.Shadow.Sunken)
+        sep_sprite.setStyleSheet("color: #555555;")
+        layout.addWidget(sep_sprite)
+
+        btn_sprite = QPushButton("🖼 Sprite…")
+        btn_sprite.setFixedSize(108, 30)
+        btn_sprite.setToolTip(
+            "Assigner une image personnalisee a l'outil actif"
+        )
+        btn_sprite.setStyleSheet(self._action_btn_style("#5a4a7a"))
+        btn_sprite.clicked.connect(self._on_set_sprite)
+        layout.addWidget(btn_sprite)
+
+        btn_clear_sprite = QPushButton("✕ Sprite")
+        btn_clear_sprite.setFixedSize(108, 30)
+        btn_clear_sprite.setToolTip("Effacer le sprite personnalise de l'outil actif")
+        btn_clear_sprite.setStyleSheet(self._action_btn_style("#5a3a3a"))
+        btn_clear_sprite.clicked.connect(self._on_clear_sprite)
+        layout.addWidget(btn_clear_sprite)
+
         return panel
 
     def _build_floor_toolbar(self) -> QWidget:
@@ -668,6 +692,77 @@ class MainWindow(QMainWindow):
             self._update_status(f"Export Godot : {path.name}")
 
 
+
+    # ------------------------------------------------------------------
+    # Slots  sprites personnalises
+    # ------------------------------------------------------------------
+
+    @pyqtSlot()
+    def _on_set_sprite(self) -> None:
+        """Ouvre un dialog pour choisir une image et l'assigner a l'outil actif."""
+        if self._active_tool == TOOL_ERASER:
+            self._update_status("Impossible : la gomme n'a pas de sprite.")
+            return
+
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choisir un sprite",
+            str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;Tous les fichiers (*)",
+        )
+        if not path_str:
+            return
+
+        # Stocke le chemin relatif si possible, absolu sinon
+        rel = self._serializer.make_relative(path_str)
+
+        # Applique le sprite a toutes les cellules du type actif sur l'etage actif
+        floor = self.model.get_active_floor()
+        if floor is None:
+            return
+
+        from core.grid import GRID_SIZE as _GS
+        count = 0
+        for r in range(_GS):
+            for c in range(_GS):
+                cell = floor.grid[r][c]
+                if cell.cell_type == self._active_tool:
+                    cell.custom_image = rel
+                    count += 1
+
+        self.editor_view.refresh()
+        tool_label = getattr(self._active_tool, "value",
+                             str(self._active_tool))
+        self._update_status(
+            f"Sprite assigne a {count} cellule(s) '{tool_label}' : {Path(path_str).name}"
+        )
+
+    @pyqtSlot()
+    def _on_clear_sprite(self) -> None:
+        """Efface le sprite personnalise de toutes les cellules du type actif."""
+        if self._active_tool == TOOL_ERASER:
+            self._update_status("Impossible : la gomme n'a pas de sprite.")
+            return
+
+        floor = self.model.get_active_floor()
+        if floor is None:
+            return
+
+        from core.grid import GRID_SIZE as _GS
+        count = 0
+        for r in range(_GS):
+            for c in range(_GS):
+                cell = floor.grid[r][c]
+                if cell.cell_type == self._active_tool and cell.custom_image:
+                    cell.custom_image = None
+                    count += 1
+
+        self.editor_view.refresh()
+        tool_label = getattr(self._active_tool, "value",
+                             str(self._active_tool))
+        self._update_status(
+            f"Sprite efface sur {count} cellule(s) '{tool_label}'."
+        )
 
     # ------------------------------------------------------------------
     # Slots  generation procedurale

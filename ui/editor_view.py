@@ -217,15 +217,33 @@ class EditorView(QGraphicsView):
                                cell_type: CellType) -> None:
         """Dessine une cellule : couleur pleine pour sol/mur, icône pour entités.
 
+        Si la cellule a un custom_image valide, l'image remplace l'icône Unicode.
         Méthode commune utilisée par _render_floor et _repaint_cell
         pour éviter toute duplication.
         """
+        floor = self.model.get_active_floor()
         r, g, b = CELL_COLORS[cell_type]
         x = col * CELL_PX
         y = row * CELL_PX
 
         # Fond coloré
         painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(r, g, b))
+
+        # Sprite personnalisé si disponible
+        custom_image = None
+        if floor is not None:
+            cell = floor.grid[row][col]
+            custom_image = cell.custom_image
+
+        if custom_image:
+            from pathlib import Path as _Path
+            img_path = _Path(custom_image)
+            if img_path.exists():
+                sprite = QPixmap(str(img_path))
+                if not sprite.isNull():
+                    painter.drawPixmap(x, y, CELL_PX, CELL_PX, sprite)
+                    return
+            # Chemin invalide : on tombe en fallback icone/couleur
 
         # Icône pour les cellules entités (tout sauf GROUND et WALL)
         if cell_type in CELL_ICONS:
