@@ -17,12 +17,14 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QToolButton, QButtonGroup,
     QSizePolicy, QFrame, QScrollArea, QComboBox,
     QStatusBar, QFileDialog, QMessageBox, QInputDialog,
+    QDialog, QTextEdit, QDialogButtonBox,
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
+from core.generator import Generator
 from serialization.serializer import Serializer, SerializerError
 from ui.editor_view import EditorView
 from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT
@@ -243,6 +245,20 @@ class MainWindow(QMainWindow):
         btn_rename.setStyleSheet(self._action_btn_style("#554a66"))
         btn_rename.clicked.connect(self._on_rename_floor)
         layout.addWidget(btn_rename)
+
+        sep_gen = QFrame()
+        sep_gen.setFrameShape(QFrame.Shape.VLine)
+        sep_gen.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep_gen)
+
+        btn_generate = QPushButton("⚙ Générer")
+        btn_generate.setFixedHeight(30)
+        btn_generate.setToolTip(
+            "Génère les couloirs, murs et escaliers sur l'étage actif"
+        )
+        btn_generate.setStyleSheet(self._action_btn_style("#7a5a20"))
+        btn_generate.clicked.connect(self._on_generate)
+        layout.addWidget(btn_generate)
 
         layout.addStretch()
 
@@ -548,6 +564,89 @@ class MainWindow(QMainWindow):
         self._current_path = path
         self.setWindowTitle(f"Tower Dungeon Level Editor  {path.name}")
         self._update_status(f"Projet sauvegardé : {path.name}")
+
+    # ------------------------------------------------------------------
+    # Slots  generation procedurale
+    # ------------------------------------------------------------------
+
+    @pyqtSlot()
+    def _on_generate(self) -> None:
+        """Lance le generateur procedural sur l'etage actif et affiche le rapport."""
+        floor = self.model.get_active_floor()
+        if floor is None:
+            QMessageBox.warning(
+                self,
+                "Aucun etage",
+                "Aucun etage actif. Ajoutez un etage avant de generer.",
+            )
+            return
+
+        # Confirmation si l'etage contient deja des murs ou couloirs generés
+        has_walls = any(
+            floor.grid[r][c].cell_type.value == "wall"
+            for r in range(72)
+            for c in range(72)
+        )
+        if has_walls:
+            reply = QMessageBox.question(
+                self,
+                "Regenerer ?",
+                "L'etage contient deja des murs generes.\n"
+                "Lancer la generation va ajouter couloirs et murs par-dessus.\n\n"
+                "Continuer ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        gen = Generator()
+        report = gen.run(floor)
+
+        # Rafraichit le canvas pour afficher le resultat
+        self.editor_view.refresh()
+        self._update_status(
+            f"Generation terminee : {report.rooms_kept} salles, "
+            f"{report.corridors_traced} couloirs, "
+            f"{report.transitions_added} transitions, "
+            f"{report.walls_placed} murs."
+        )
+
+        # Affiche le rapport detaille
+        self._show_generation_report(report)
+
+    def _show_generation_report(self, report) -> None:
+        """Affiche un dialog non-bloquant avec le rapport de generation."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rapport de generation")
+        dlg.setMinimumSize(420, 320)
+        dlg.setStyleSheet("background-color: #2b2b2b; color: #eeeeee;")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        title = QLabel("Resultat de la generation procedurale")
+        title.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #f0c060;"
+        )
+        layout.addWidget(title)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setStyleSheet(
+            "background-color: #1e1e1e; color: #cccccc; "
+            "font-family: monospace; font-size: 12px; "
+            "border: 1px solid #555555; border-radius: 4px;"
+        )
+        text.setPlainText(report.summary())
+        layout.addWidget(text)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        buttons.setStyleSheet("color: #ffffff;")
+        buttons.accepted.connect(dlg.accept)
+        layout.addWidget(buttons)
+
+        dlg.exec()
 
     def _refresh_floor_selector(self) -> None:
         """Resynchronise le sélecteur d'étages avec le modèle."""
