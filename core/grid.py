@@ -98,8 +98,128 @@ CELL_COLORS: dict[CellType, tuple[int, int, int]] = {
 
 
 # ---------------------------------------------------------------------------
-# Cell
+# CustomCellRegistry -- types de cellules définis par l'utilisateur
 # ---------------------------------------------------------------------------
+
+from dataclasses import dataclass as _dataclass
+
+@_dataclass
+class CustomCellDef:
+    """Définition d'un type de cellule personnalisé.
+
+    Attributes:
+        type_id    : identifiant string unique (ex: "garde"), utilisé dans le JSON
+        label      : nom affiché dans la palette (ex: "Garde")
+        color      : couleur de fond (R, G, B)
+        icon_unicode : icone Unicode à afficher (peut être vide)
+        icon_path  : chemin absolu vers un PNG, ou None
+    """
+    type_id:       str
+    label:         str
+    color:         tuple[int, int, int] = (100, 100, 120)
+    icon_unicode:  str = "?"
+    icon_path:     Optional[str] = None
+
+
+class CustomCellRegistry:
+    """Registre global des types et remplacements d'icones custom.
+
+    Deux catégories :
+    - _custom_types    : nouveaux CellTypes créés par l'utilisateur
+    - _icon_overrides  : remplacement visuel d'un CellType existant
+                         (unicode ou PNG, le type JSON reste inchangé)
+    """
+
+    def __init__(self) -> None:
+        self._custom_types:   dict[str, CustomCellDef] = {}
+        self._icon_overrides: dict[str, CustomCellDef] = {}
+
+    # -- Types custom -------------------------------------------------------
+
+    def register(self, defn: CustomCellDef) -> None:
+        """Enregistre un nouveau type custom. Ecrase si type_id déjà existant."""
+        self._custom_types[defn.type_id] = defn
+
+    def unregister(self, type_id: str) -> None:
+        """Supprime un type custom."""
+        self._custom_types.pop(type_id, None)
+
+    def get(self, type_id: str) -> Optional[CustomCellDef]:
+        """Retourne la définition d'un type custom, ou None."""
+        return self._custom_types.get(type_id)
+
+    def is_custom(self, type_id: str) -> bool:
+        """Retourne True si type_id est un type custom (pas un CellType natif)."""
+        return type_id in self._custom_types
+
+    def all_custom(self) -> list[CustomCellDef]:
+        """Retourne tous les types custom enregistrés."""
+        return list(self._custom_types.values())
+
+    # -- Remplacements visuels ----------------------------------------------
+
+    def set_override(self, cell_type_value: str, defn: CustomCellDef) -> None:
+        """Définit un remplacement visuel pour un CellType existant."""
+        self._icon_overrides[cell_type_value] = defn
+
+    def clear_override(self, cell_type_value: str) -> None:
+        """Supprime le remplacement visuel d'un CellType existant."""
+        self._icon_overrides.pop(cell_type_value, None)
+
+    def get_override(self, cell_type_value: str) -> Optional[CustomCellDef]:
+        """Retourne le remplacement visuel d'un CellType, ou None."""
+        return self._icon_overrides.get(cell_type_value)
+
+    def all_overrides(self) -> dict[str, CustomCellDef]:
+        """Retourne tous les remplacements visuels."""
+        return dict(self._icon_overrides)
+
+    # -- Sérialisation ------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        """Sérialise le registre en dict JSON-compatible."""
+        def _def_to_dict(d: CustomCellDef) -> dict:
+            return {
+                "type_id":      d.type_id,
+                "label":        d.label,
+                "color":        list(d.color),
+                "icon_unicode": d.icon_unicode,
+                "icon_path":    d.icon_path,
+            }
+        return {
+            "custom_types":   [_def_to_dict(d) for d in self._custom_types.values()],
+            "icon_overrides": {k: _def_to_dict(v) for k, v in self._icon_overrides.items()},
+        }
+
+    def from_dict(self, data: dict) -> None:
+        """Restaure le registre depuis un dict. Ne réinitialise pas -- fusionne."""
+        def _dict_to_def(d: dict) -> CustomCellDef:
+            return CustomCellDef(
+                type_id=d["type_id"],
+                label=d["label"],
+                color=tuple(d.get("color", [100, 100, 120])),
+                icon_unicode=d.get("icon_unicode", "?"),
+                icon_path=d.get("icon_path"),
+            )
+        for item in data.get("custom_types", []):
+            try:
+                self.register(_dict_to_def(item))
+            except (KeyError, TypeError):
+                pass
+        for key, item in data.get("icon_overrides", {}).items():
+            try:
+                self.set_override(key, _dict_to_def(item))
+            except (KeyError, TypeError):
+                pass
+
+    def clear(self) -> None:
+        """Vide entièrement le registre."""
+        self._custom_types.clear()
+        self._icon_overrides.clear()
+
+
+# Instance globale partagée par tous les modules
+CUSTOM_REGISTRY = CustomCellRegistry()
 
 @dataclass
 class Cell:

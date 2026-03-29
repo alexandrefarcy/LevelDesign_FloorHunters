@@ -225,38 +225,74 @@ class EditorView(QGraphicsView):
         return pixmap
 
     def _draw_cell_on_painter(self, painter: QPainter, row: int, col: int,
-                               cell_type: CellType) -> None:
-        """Dessine une cellule : couleur pleine pour sol/mur, icône pour entités.
+                               cell_type) -> None:
+        """Dessine une cellule.
 
-        Si la cellule a un custom_image valide, l'image remplace l'icône Unicode.
-        Méthode commune utilisée par _render_floor et _repaint_cell
-        pour éviter toute duplication.
+        Priorité de rendu :
+        1. custom_image de la cellule (sprite perso phase 5)
+        2. override visuel du CUSTOM_REGISTRY (icone remplacement)
+        3. type custom du CUSTOM_REGISTRY (nouvel outil)
+        4. rendu natif (CELL_COLORS + CELL_ICONS)
         """
-        floor = self.model.get_active_floor()
-        r, g, b = CELL_COLORS[cell_type]
+        from core.grid import CUSTOM_REGISTRY
+
+        type_val = cell_type.value if hasattr(cell_type, 'value') else str(cell_type)
         x = col * CELL_PX
         y = row * CELL_PX
 
-        # Fond coloré
-        painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(r, g, b))
-
-        # Sprite personnalisé si disponible
-        custom_image = None
+        # 1. Sprite perso de la cellule
+        floor = self.model.get_active_floor()
         if floor is not None:
-            cell = floor.grid[row][col]
-            custom_image = cell.custom_image
+            custom_image = floor.grid[row][col].custom_image
+            if custom_image:
+                from pathlib import Path as _P
+                img_path = _P(custom_image)
+                if img_path.exists():
+                    sprite = QPixmap(str(img_path))
+                    if not sprite.isNull():
+                        r, g, b = CELL_COLORS.get(cell_type, (80, 80, 80))
+                        painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(r, g, b))
+                        painter.drawPixmap(x, y, CELL_PX, CELL_PX, sprite)
+                        return
 
-        if custom_image:
-            from pathlib import Path as _Path
-            img_path = _Path(custom_image)
-            if img_path.exists():
-                sprite = QPixmap(str(img_path))
-                if not sprite.isNull():
-                    painter.drawPixmap(x, y, CELL_PX, CELL_PX, sprite)
+        # 2+3. Override visuel ou type custom
+        visual = CUSTOM_REGISTRY.get_override(type_val) or CUSTOM_REGISTRY.get(type_val)
+        if visual:
+            r, g, b = visual.color
+            painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(r, g, b))
+            if visual.icon_path:
+                from pathlib import Path as _P2
+                if _P2(visual.icon_path).exists():
+                    pix = QPixmap(visual.icon_path).scaled(
+                        CELL_PX, CELL_PX,
+                        Qt.AspectRatioMode.IgnoreAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                    painter.drawPixmap(x, y, pix)
                     return
-            # Chemin invalide : on tombe en fallback icone/couleur
+            icon = visual.icon_unicode or "?"
+            font = QFont()
+            font.setPixelSize(max(8, CELL_PX - 4))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor(255, 255, 255, 230))
+            painter.drawText(x, y, CELL_PX, CELL_PX,
+                             Qt.AlignmentFlag.AlignCenter, icon)
+            return
 
-        # Icône pour les cellules entités (tout sauf GROUND et WALL)
+        # 4. Rendu natif
+        if type_val not in (ct.value for ct in CELL_COLORS):
+            painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(80, 80, 80))
+            font = QFont()
+            font.setPixelSize(max(8, CELL_PX - 4))
+            painter.setFont(font)
+            painter.setPen(QColor(255, 255, 255, 180))
+            painter.drawText(x, y, CELL_PX, CELL_PX,
+                             Qt.AlignmentFlag.AlignCenter, "?")
+            return
+
+        r, g, b = CELL_COLORS[cell_type]
+        painter.fillRect(x, y, CELL_PX, CELL_PX, QColor(r, g, b))
         if cell_type in CELL_ICONS:
             icon = CELL_ICONS[cell_type]
             font = QFont()
@@ -264,11 +300,8 @@ class EditorView(QGraphicsView):
             font.setBold(True)
             painter.setFont(font)
             painter.setPen(QColor(255, 255, 255, 230))
-            painter.drawText(
-                x, y, CELL_PX, CELL_PX,
-                Qt.AlignmentFlag.AlignCenter,
-                icon,
-            )
+            painter.drawText(x, y, CELL_PX, CELL_PX,
+                             Qt.AlignmentFlag.AlignCenter, icon)
 
     def _draw_origin_marker_on_painter(self, painter: QPainter) -> None:
         """Dessine le marqueur de la case (0,0)  origine du repère Godot."""
