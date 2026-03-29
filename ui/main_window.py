@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QButtonGroup,
+    QPushButton, QLabel, QToolButton, QButtonGroup,
     QSizePolicy, QFrame, QScrollArea, QComboBox,
     QStatusBar, QFileDialog, QMessageBox, QInputDialog,
     QDialog, QTextEdit, QDialogButtonBox,
@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QColor, QFont
 
 from core.grid import CellType, GridModel, CELL_LABELS, CELL_COLORS, CELL_EMOJIS
 from core.generator import Generator
@@ -31,6 +31,7 @@ from serialization.serializer import Serializer, SerializerError
 from serialization.autosave import AutoSave
 from ui.editor_view import EditorView
 from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT
+from ui.preferences import PreferencesManager, PreferencesDialog
 
 
 class MainWindow(QMainWindow):
@@ -55,6 +56,9 @@ class MainWindow(QMainWindow):
         # --- Chemin du fichier courant ---
         self._current_path: Path | None = None
         self._serializer = Serializer()
+
+        # --- Préférences (raccourcis configurables) ---
+        self._prefs = PreferencesManager()
 
         # --- Construction de l'UI ---
         self._build_ui()
@@ -110,11 +114,10 @@ class MainWindow(QMainWindow):
         self.editor_view.cell_hovered_cleared.connect(self._on_cell_hovered_cleared)
         self.editor_view.cell_painted.connect(self._on_cell_painted)
         self.editor_view.tool_shortcut_requested.connect(self._on_tool_shortcut)
-
-        # Raccourcis Ctrl+Z / Ctrl+Y
-        QShortcut(QKeySequence.StandardKey.Undo, self).activated.connect(self._on_undo)
-        QShortcut(QKeySequence.StandardKey.Redo, self).activated.connect(self._on_redo)
         right_layout.addWidget(self.editor_view, stretch=1)
+
+        # Appliquer les raccourcis configurés au canvas
+        self._apply_shortcuts()
 
         right_widget = QWidget()
         right_widget.setLayout(right_layout)
@@ -321,6 +324,18 @@ class MainWindow(QMainWindow):
         btn_reset_zoom.clicked.connect(self._on_reset_zoom)
         row2.addWidget(btn_reset_zoom)
 
+        sep_prefs = QFrame()
+        sep_prefs.setFrameShape(QFrame.Shape.VLine)
+        sep_prefs.setFrameShadow(QFrame.Shadow.Sunken)
+        row2.addWidget(sep_prefs)
+
+        btn_prefs = QPushButton("Préférences")
+        btn_prefs.setFixedHeight(28)
+        btn_prefs.setStyleSheet(self._action_btn_style("#3a3a5a"))
+        btn_prefs.setToolTip("Configurer les raccourcis clavier")
+        btn_prefs.clicked.connect(self._on_open_preferences)
+        row2.addWidget(btn_prefs)
+
         row2.addStretch()
         outer.addLayout(row2)
 
@@ -480,6 +495,16 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_cell_hovered_cleared(self) -> None:
         self._update_status("Prêt  cliquez sur la grille pour dessiner.")
+
+    def _apply_shortcuts(self) -> None:
+        """Transmet les raccourcis configurés au canvas."""
+        self.editor_view.update_shortcuts(self._prefs)
+
+    @pyqtSlot()
+    def _on_open_preferences(self) -> None:
+        dlg = PreferencesDialog(self._prefs, parent=self)
+        dlg.shortcuts_changed.connect(self._apply_shortcuts)
+        dlg.exec()
 
     @pyqtSlot()
     def _on_undo(self) -> None:
