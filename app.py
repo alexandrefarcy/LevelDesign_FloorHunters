@@ -1,6 +1,6 @@
 """
 app.py
-Point d'entrée du Tower Dungeon Level Editor.
+Point d'entree du Tower Dungeon Level Editor.
 
 Lancement :
     python app.py
@@ -13,7 +13,6 @@ from ui.main_window import MainWindow
 REQUIRED_PACKAGES = [
     ("PyQt6",    "PyQt6"),
     ("networkx", "networkx"),
-    ("numpy",    "numpy"),   # exemple
 ]
 
 def check_dependencies() -> None:
@@ -21,7 +20,7 @@ def check_dependencies() -> None:
         try:
             __import__(import_name)
         except ImportError:
-            print(f"Erreur : le package {package_name} n'est pas installé.")
+            print(f"Erreur : le package {package_name} n'est pas installe.")
             sys.exit(1)
 
 
