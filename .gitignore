@@ -25,6 +25,8 @@ __pycache__/
 dist/
 build/
 *.spec
+Output/
+*.spec.bak
 
 # =====================================================
 # PYINSTALLER — exécutables générés
@@ -48,3 +50,4 @@ Thumbs.db
 desktop.ini
 _Doc/PROMPT_TRANSFERT_TOWER_DUNGEON.md
 *.py
+

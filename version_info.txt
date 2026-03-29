@@ -1,0 +1,38 @@
+# version_info.txt
+# Metadonnees de version Windows embarquees dans l'exe par PyInstaller.
+# Modifie les champs VSVersionInfo selon ta version.
+#
+# Verification : clic droit sur le .exe -> Proprietes -> Details
+
+VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=(1, 0, 0, 0),
+        prodvers=(1, 0, 0, 0),
+        mask=0x3f,
+        flags=0x0,
+        OS=0x40004,
+        fileType=0x1,
+        subtype=0x0,
+        date=(0, 0),
+    ),
+    kids=[
+        StringFileInfo(
+            [
+                StringTable(
+                    "040C04B0",  # Francais (France) / Unicode
+                    [
+                        StringStruct("CompanyName",      "TowerDungeon"),
+                        StringStruct("FileDescription",  "Tower Dungeon Level Editor"),
+                        StringStruct("FileVersion",      "1.0.0.0"),
+                        StringStruct("InternalName",     "TowerDungeonLevelEditor"),
+                        StringStruct("LegalCopyright",   ""),
+                        StringStruct("OriginalFilename", "TowerDungeonLevelEditor.exe"),
+                        StringStruct("ProductName",      "Tower Dungeon Level Editor"),
+                        StringStruct("ProductVersion",   "1.0.0.0"),
+                    ],
+                )
+            ]
+        ),
+        VarFileInfo([VarStruct("Translation", [0x040C, 1200])]),
+    ],
+)
