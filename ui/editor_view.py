@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
 from PyQt6.QtGui import (
     QPixmap, QPainter, QColor, QPen, QBrush, QFont,
-    QWheelEvent, QMouseEvent,
+    QWheelEvent, QMouseEvent, QKeySequence,
 )
 
 from core.grid import (
@@ -28,6 +28,9 @@ from core.grid import (
     CELL_COLORS, CELL_LABELS,
 )
 from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT, UNDO_MAX_LEVELS
+
+# Import tardif pour éviter la dépendance circulaire -- voir update_shortcuts()
+_prefs_manager = None
 
 # Taille d'une cellule en pixels dans la QPixmap
 CELL_PX = 16
@@ -79,6 +82,10 @@ class EditorView(QGraphicsView):
         self._pan_start = QPointF()    # position souris au début du pan
         self._zoom_factor = 1.0        # facteur de zoom courant
 
+        # Raccourcis clavier -- mis à jour via update_shortcuts()
+        from ui.constants import DEFAULT_SHORTCUTS
+        self._shortcuts: dict[str, str] = dict(DEFAULT_SHORTCUTS)
+
         # Historique undo/redo  snapshots de grille par coup de pinceau
         self._undo_stack: deque[list[list]] = deque(maxlen=UNDO_MAX_LEVELS)
         self._redo_stack: deque[list[list]] = deque(maxlen=UNDO_MAX_LEVELS)
@@ -113,6 +120,10 @@ class EditorView(QGraphicsView):
 
     def set_active_tool(self, tool: CellType | str) -> None:
         self._active_tool = tool
+
+    def update_shortcuts(self, prefs) -> None:
+        """Met à jour la table de raccourcis depuis le PreferencesManager."""
+        self._shortcuts = prefs.get_all()
 
     def set_brush_size(self, size: int) -> None:
         """Définit la taille du pinceau (doit être dans BRUSH_SIZES)."""
@@ -436,31 +447,66 @@ class EditorView(QGraphicsView):
         super().leaveEvent(event)
 
     def keyPressEvent(self, event) -> None:
-        """Raccourcis clavier gérés directement sur le canvas."""
-        key = event.key()
-        if key == Qt.Key.Key_E:
-            self.tool_shortcut_requested.emit(TOOL_ERASER)
-        elif key == Qt.Key.Key_Space:
+        """Raccourcis clavier -- lus depuis _shortcuts (configurables)."""
+        from core.grid import CellType as _CT
+        from ui.constants import TOOL_ERASER as _ERASER
+
+        # Construire la représentation Qt de la touche pressée
+        key_seq = QKeySequence(event.keyCombination()).toString()
+
+        # Mapping action -> comportement
+        action = None
+        for act, seq in self._shortcuts.items():
+            if seq == key_seq:
+                action = act
+                break
+
+        if action == "eraser":
+            self.tool_shortcut_requested.emit(_ERASER)
+        elif action == "recenter":
             self.reset_zoom()
+        elif action == "undo":
+            self.undo()
+        elif action == "redo":
+            self.redo()
+        elif action and action.startswith("tool_"):
+            tool_name = action[5:]  # retire "tool_"
+            try:
+                cell_type = _CT(tool_name)
+                self.tool_shortcut_requested.emit(cell_type.value)
+            except ValueError:
+                pass
         else:
             super().keyPressEvent(event)
 
     # ------------------------------------------------------------------
-    # Zoom molette
+    # Zoom molette + scroll modifié
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        zoom_in_factor = 1.15
-        zoom_out_factor = 1 / zoom_in_factor
+        modifiers = event.modifiers()
+        delta = event.angleDelta().y()
 
-        if event.angleDelta().y() > 0:
-            factor = zoom_in_factor
+        if modifiers == Qt.KeyboardModifier.ControlModifier:
+            # Ctrl + molette : scroll horizontal
+            scroll_amount = -delta // 2
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() + scroll_amount
+            )
+
+        elif modifiers == Qt.KeyboardModifier.ShiftModifier:
+            # Shift + molette : scroll vertical
+            scroll_amount = -delta // 2
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() + scroll_amount
+            )
+
         else:
-            factor = zoom_out_factor
-
-        new_zoom = self._zoom_factor * factor
-
-        # Limites de zoom : 20% à 800%
-        if 0.2 <= new_zoom <= 8.0:
-            self._zoom_factor = new_zoom
-            self.scale(factor, factor)
+            # Molette seule : zoom centré sur le curseur
+            zoom_in_factor = 1.15
+            zoom_out_factor = 1 / zoom_in_factor
+            factor = zoom_in_factor if delta > 0 else zoom_out_factor
+            new_zoom = self._zoom_factor * factor
+            if 0.2 <= new_zoom <= 8.0:
+                self._zoom_factor = new_zoom
+                self.scale(factor, factor)
