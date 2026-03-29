@@ -24,9 +24,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-*.spec
 Output/
-*.spec.bak
+
 
 # =====================================================
 # PYINSTALLER — exécutables générés
