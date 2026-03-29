@@ -3,7 +3,7 @@
 # Workflow GitHub Actions -- Build et release automatique
 #
 # Declenchement : quand tu pushs un tag de version
-#   git tag v1.0.0
+#   git tag v1.0.1
 #   git push --tags
 #
 # Ce workflow va :
@@ -11,15 +11,16 @@
 #   2. Installer Python 3.12 + dependances
 #   3. Generer l'icone (Pillow)
 #   4. Builder l'exe avec PyInstaller (onedir)
-#   5. Zipper le dossier de build
-#   6. Creer une GitHub Release et uploader le zip
+#   5. Installer Inno Setup sur le serveur GitHub
+#   6. Compiler l'installateur .exe avec Inno Setup
+#   7. Creer une GitHub Release et uploader le Setup.exe
 
 name: Build and Release
 
 on:
   push:
     tags:
-      - "v*.*.*"   # ex: v1.0.0, v1.2.3
+      - "v*.*.*"   # ex: v1.0.1, v1.2.3
 
 permissions:
   contents: write   # necessaire pour creer la Release
@@ -64,18 +65,23 @@ jobs:
         run: pyinstaller tower_dungeon.spec
 
       # ------------------------------------------------------------------
-      # 6 - Zipper le build
+      # 6 - Installer Inno Setup (via Chocolatey, pre-installe sur GitHub)
       # ------------------------------------------------------------------
-      - name: Zip build
-        run: |
-          $version = "${{ github.ref_name }}"
-          $zipName = "TowerDungeonLevelEditor_${version}_Windows.zip"
-          Compress-Archive -Path dist\TowerDungeonLevelEditor\* -DestinationPath $zipName
-          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+      - name: Install Inno Setup
+        run: choco install innosetup --yes
         shell: pwsh
 
       # ------------------------------------------------------------------
-      # 7 - Creer la GitHub Release et uploader le zip
+      # 7 - Compiler l'installateur
+      # ------------------------------------------------------------------
+      - name: Compile installer
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$version installer.iss
+        shell: pwsh
+
+      # ------------------------------------------------------------------
+      # 8 - Creer la GitHub Release et uploader le Setup.exe
       # ------------------------------------------------------------------
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -85,11 +91,12 @@ jobs:
             ## Tower Dungeon Level Editor ${{ github.ref_name }}
 
             ### Installation
-            1. Telecharger `TowerDungeonLevelEditor_${{ github.ref_name }}_Windows.zip`
-            2. Extraire le zip
-            3. Double-cliquer sur `TowerDungeonLevelEditor.exe`
+            1. Telecharger `TowerDungeonLevelEditor_Setup_${{ github.ref_name }}.exe`
+            2. Double-cliquer dessus
+            3. Choisir le dossier d'installation
+            4. Lancer l'application via le raccourci cree sur le Bureau
 
             **Aucune installation de Python requise.**
-          files: ${{ env.ZIP_NAME }}
+          files: Output/TowerDungeonLevelEditor_Setup_${{ github.ref_name }}.exe
           draft: false
           prerelease: false
