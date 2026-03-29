@@ -1,88 +1,55 @@
 # .github/workflows/release.yml
 #
-# Workflow GitHub Actions -- Build et release automatique
-#
-# Declenchement : quand tu pushs un tag de version
-#   git tag v1.0.1
+# Declenchement :
+#   git tag v1.x.x
 #   git push --tags
-#
-# Ce workflow va :
-#   1. Cloner le repo
-#   2. Installer Python 3.12 + dependances
-#   3. Generer l'icone (Pillow)
-#   4. Builder l'exe avec PyInstaller (onedir)
-#   5. Installer Inno Setup sur le serveur GitHub
-#   6. Compiler l'installateur .exe avec Inno Setup
-#   7. Creer une GitHub Release et uploader le Setup.exe
 
 name: Build and Release
 
 on:
   push:
     tags:
-      - "v*.*.*"   # ex: v1.0.1, v1.2.3
+      - "v*.*.*"
 
 permissions:
-  contents: write   # necessaire pour creer la Release
+  contents: write
 
 jobs:
   build:
-    runs-on: windows-latest   # build Windows natif
+    runs-on: windows-latest
 
     steps:
-      # ------------------------------------------------------------------
-      # 1 - Checkout du code
-      # ------------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------------
-      # 2 - Installation Python 3.12
-      # ------------------------------------------------------------------
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # ------------------------------------------------------------------
-      # 3 - Installation des dependances
-      # ------------------------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install PyQt6 networkx pyinstaller pillow
 
-      # ------------------------------------------------------------------
-      # 4 - Generation de l'icone
-      # ------------------------------------------------------------------
       - name: Generate icon
         run: python generate_icon.py
 
-      # ------------------------------------------------------------------
-      # 5 - Build PyInstaller
-      # ------------------------------------------------------------------
       - name: Build with PyInstaller
         run: pyinstaller tower_dungeon.spec
+        env:
+          PYTHONPATH: ${{ github.workspace }}
 
-      # ------------------------------------------------------------------
-      # 6 - Installer Inno Setup (via Chocolatey, pre-installe sur GitHub)
-      # ------------------------------------------------------------------
       - name: Install Inno Setup
         run: choco install innosetup --yes
         shell: pwsh
 
-      # ------------------------------------------------------------------
-      # 7 - Compiler l'installateur
-      # ------------------------------------------------------------------
       - name: Compile installer
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$version installer.iss
         shell: pwsh
 
-      # ------------------------------------------------------------------
-      # 8 - Creer la GitHub Release et uploader le Setup.exe
-      # ------------------------------------------------------------------
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

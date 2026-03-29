@@ -3,29 +3,45 @@
 #
 # Mode onedir : plus fiable que onefile avec PyQt6.
 
-import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
 # ---------------------------------------------------------------------------
-# Imports caches -- collect_submodules garantit l'inclusion complete
+# Imports caches -- listes explicitement pour les packages locaux
 # ---------------------------------------------------------------------------
 
 hidden_imports = [
+    # PyQt6
     "PyQt6.QtWidgets",
     "PyQt6.QtCore",
     "PyQt6.QtGui",
     "PyQt6.sip",
+    # networkx
+    "networkx",
+    "networkx.algorithms",
+    "networkx.algorithms.shortest_paths",
+    "networkx.algorithms.traversal",
+    "networkx.classes",
+    "networkx.generators",
+    "networkx.drawing",
+    # Packages locaux -- tous les modules explicitement
+    "core",
+    "core.grid",
+    "core.algorithms",
+    "core.generator",
+    "core.populator",
+    "serialization",
+    "serialization.serializer",
+    "serialization.autosave",
+    "ui",
+    "ui.constants",
+    "ui.main_window",
+    "ui.editor_view",
+    "ui.icon_manager",
+    "ui.preferences",
 ]
-
-# Collecte automatique de TOUS les sous-modules des packages internes
-# Evite les ModuleNotFoundError au lancement de l'exe
-hidden_imports += collect_submodules("core")
-hidden_imports += collect_submodules("serialization")
-hidden_imports += collect_submodules("ui")
-hidden_imports += collect_submodules("networkx")
 
 # ---------------------------------------------------------------------------
 # Fichiers de donnees a embarquer
@@ -40,6 +56,7 @@ datas += collect_data_files("PyQt6", includes=["Qt6/plugins/**"])
 
 a = Analysis(
     ["app.py"],
+    # pathex pointe vers la racine du projet -- indispensable pour les packages locaux
     pathex=[str(Path(".").resolve())],
     binaries=[],
     datas=datas,
@@ -53,7 +70,6 @@ a = Analysis(
         "numpy",
         "pandas",
         "scipy",
-        "PIL",
         "IPython",
         "jupyter",
         "notebook",
