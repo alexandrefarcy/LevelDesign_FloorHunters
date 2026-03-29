@@ -1130,6 +1130,8 @@ class MainWindow(QMainWindow):
         self._refresh_custom_tools()
         self.editor_view.refresh()
         self._update_status("Icones mises à jour.")
+
+    def _refresh_floor_selector(self) -> None:
         """Resynchronise le sélecteur d'étages avec le modèle."""
         self.floor_selector.blockSignals(True)
         self.floor_selector.clear()

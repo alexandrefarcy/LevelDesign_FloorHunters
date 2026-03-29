@@ -1,18 +1,7 @@
 # tower_dungeon.spec
 # Configuration PyInstaller pour Tower Dungeon Level Editor.
 #
-# Usage (depuis la racine du projet) :
-#     pyinstaller tower_dungeon.spec
-#
-# Prerequis :
-#     pip install pyinstaller
-#
-# Le build produit le dossier dist/TowerDungeonLevelEditor/
-# contenant l'executable et toutes ses dependances.
-# Ce dossier est celui a packager avec Inno Setup.
-#
-# Mode onedir : plus fiable que onefile avec PyQt6 (evite les faux positifs antivirus,
-# demarrage plus rapide, pas d'extraction temp au lancement).
+# Mode onedir : plus fiable que onefile avec PyQt6.
 
 import sys
 from pathlib import Path
@@ -21,45 +10,28 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 block_cipher = None
 
 # ---------------------------------------------------------------------------
-# Collecte automatique des sous-modules PyQt6 necessaires
+# Imports caches -- collect_submodules garantit l'inclusion complete
 # ---------------------------------------------------------------------------
 
 hidden_imports = [
-    # PyQt6 - modules utilises par le projet
     "PyQt6.QtWidgets",
     "PyQt6.QtCore",
     "PyQt6.QtGui",
     "PyQt6.sip",
-    # networkx et ses dependances
-    "networkx",
-    "networkx.algorithms",
-    "networkx.classes",
-    "networkx.generators",
-    "networkx.drawing",
-    # Modules internes du projet
-    "core",
-    "core.grid",
-    "core.algorithms",
-    "core.generator",
-    "core.populator",
-    "serialization",
-    "serialization.serializer",
-    "serialization.autosave",
-    "ui",
-    "ui.constants",
-    "ui.main_window",
-    "ui.editor_view",
-    "ui.icon_manager",
-    "ui.preferences",
 ]
+
+# Collecte automatique de TOUS les sous-modules des packages internes
+# Evite les ModuleNotFoundError au lancement de l'exe
+hidden_imports += collect_submodules("core")
+hidden_imports += collect_submodules("serialization")
+hidden_imports += collect_submodules("ui")
+hidden_imports += collect_submodules("networkx")
 
 # ---------------------------------------------------------------------------
 # Fichiers de donnees a embarquer
 # ---------------------------------------------------------------------------
 
 datas = []
-
-# Collecte les donnees PyQt6 (plugins Qt : plateformes, styles, etc.)
 datas += collect_data_files("PyQt6", includes=["Qt6/plugins/**"])
 
 # ---------------------------------------------------------------------------
@@ -76,7 +48,6 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Exclusions pour reduire la taille du build
         "tkinter",
         "matplotlib",
         "numpy",
@@ -97,7 +68,7 @@ a = Analysis(
 )
 
 # ---------------------------------------------------------------------------
-# Archive PYZ (bytecode Python)
+# Archive PYZ
 # ---------------------------------------------------------------------------
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
@@ -115,14 +86,14 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,           # compression UPX si disponible (optionnel)
-    console=False,      # pas de fenetre console (application GUI)
+    upx=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="assets/icon.ico",   # chemin vers l'icone generee par generate_icon.py
+    icon="assets/icon.ico",
     version="version_info.txt",
 )
 
