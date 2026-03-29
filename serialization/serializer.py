@@ -276,24 +276,29 @@ class Serializer:
 
         - Liste sparse : seules les cellules non-EMPTY sont incluses
         - GROUND : {"pos": [x, y]}  type omis car valeur par défaut
-        - Autres : {"pos": [x, y], "type": "..."}
+        - Natifs : {"pos": [x, y], "type": "..."}
         - WALL  : {"pos": [x, y], "type": "wall", "mask": int, "rot_y": float}
+        - Custom : {"pos": [x, y], "type": "<type_id>"}
         """
+        from core.grid import CUSTOM_REGISTRY
+
         cells: list[dict] = []
 
         for row in range(GRID_SIZE):
             for col in range(GRID_SIZE):
                 cell = floor.grid[row][col]
-                if cell.cell_type == CellType.EMPTY:
+                type_val = cell.cell_type.value if hasattr(cell.cell_type, 'value') \
+                    else str(cell.cell_type)
+
+                if type_val == "empty":
                     continue
 
                 x, y = GridModel.index_to_coords(row, col)
 
-                if cell.cell_type == CellType.GROUND:
-                    # Type omis  GROUND est la valeur par défaut implicite
+                if type_val == "ground":
                     cells.append({"pos": [x, y]})
 
-                elif cell.cell_type == CellType.WALL:
+                elif type_val == "wall":
                     mask = self._compute_wall_mask(floor, row, col)
                     rot_y = _WALL_ROT_Y[mask]
                     cells.append({
@@ -303,9 +308,12 @@ class Serializer:
                         "rot_y": rot_y,
                     })
 
+                elif type_val in _TO_GODOT:
+                    cells.append({"pos": [x, y], "type": _TO_GODOT[type_val]})
+
                 else:
-                    godot_type = _TO_GODOT[cell.cell_type.value]
-                    cells.append({"pos": [x, y], "type": godot_type})
+                    # Type custom -- on exporte le type_id directement
+                    cells.append({"pos": [x, y], "type": type_val})
 
         return {
             "level":   floor.floor_id,
@@ -344,14 +352,14 @@ class Serializer:
 
         - cells est une liste sparse
         - pos[0] = x, pos[1] = y (coordonnées centrées)
-        - "type" absent → GROUND par défaut
+        - "type" absent -> GROUND par défaut
         - "mask" et "rot_y" ignorés (données Godot only)
+        - Types inconnus -> stockés comme string custom dans cell_type
         """
-        from core.grid import Cell, Floor as FloorClass
+        from core.grid import Cell, Floor as FloorClass, CUSTOM_REGISTRY
 
         level_id = int(data.get("level", 1))
         name = f"Étage {level_id}"
-
         floor = FloorClass(floor_id=level_id, name=name)
 
         for i, cell_data in enumerate(data["cells"]):
@@ -365,20 +373,24 @@ class Serializer:
                 ) from exc
 
             godot_type = cell_data.get("type", "ground")
-            if godot_type not in _FROM_GODOT:
-                raise SerializerError(
-                    f"Cellule #{i} : type inconnu '{godot_type}' dans {source_name}."
-                )
-
-            internal_type = _FROM_GODOT[godot_type]
-            cell_type = CellType(internal_type)
 
             if not GridModel.is_valid_coords(x, y):
                 raise SerializerError(
                     f"Cellule #{i} : coordonnées ({x}, {y}) hors grille dans {source_name}."
                 )
 
-            floor.set_cell_at(x, y, cell_type)
+            row, col = GridModel.coords_to_index(x, y)
+
+            if godot_type in _FROM_GODOT:
+                # Type natif connu
+                cell_type = CellType(_FROM_GODOT[godot_type])
+                floor.grid[row][col] = Cell(cell_type=cell_type)
+            elif CUSTOM_REGISTRY.is_custom(godot_type):
+                # Type custom enregistré -- on stocke le string directement
+                floor.grid[row][col] = Cell(cell_type=godot_type)
+            else:
+                # Type inconnu mais on l'accepte quand même (futur custom)
+                floor.grid[row][col] = Cell(cell_type=godot_type)
 
         return floor
 

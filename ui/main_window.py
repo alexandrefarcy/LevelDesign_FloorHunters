@@ -32,6 +32,7 @@ from serialization.autosave import AutoSave
 from ui.editor_view import EditorView
 from ui.constants import TOOL_ERASER, BRUSH_SIZES, BRUSH_SIZE_DEFAULT
 from ui.preferences import PreferencesManager, PreferencesDialog
+from ui.icon_manager import NewCustomTypeDialog, OverrideIconDialog, ManageIconsDialog
 
 
 class MainWindow(QMainWindow):
@@ -128,24 +129,48 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
 
     def _build_tool_palette(self) -> QWidget:
-        """Construit le panneau gauche avec les boutons d'outils."""
+        """Construit le panneau gauche avec palette outils + onglet Custom."""
         panel = QWidget()
-        panel.setFixedWidth(120)
+        panel.setFixedWidth(130)
         panel.setStyleSheet("background-color: #2b2b2b;")
 
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(6, 10, 6, 10)
-        layout.setSpacing(4)
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        title = QLabel("Outils")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #aaaaaa; font-size: 11px; font-weight: bold;")
-        layout.addWidget(title)
+        from PyQt6.QtWidgets import QTabWidget
+        tabs = QTabWidget()
+        tabs.setStyleSheet("""
+            QTabWidget::pane { border: none; }
+            QTabBar::tab {
+                background: #333333; color: #aaaaaa;
+                padding: 3px 6px; font-size: 10px;
+                border: 1px solid #555;
+            }
+            QTabBar::tab:selected { background: #4a6fa5; color: #ffffff; }
+        """)
+
+        # --- Onglet Outils natifs ---
+        native_tab = self._build_native_tools_tab()
+        tabs.addTab(native_tab, "Outils")
+
+        # --- Onglet Custom ---
+        custom_tab = self._build_custom_tools_tab()
+        tabs.addTab(custom_tab, "Custom")
+
+        outer.addWidget(tabs)
+        return panel
+
+    def _build_native_tools_tab(self) -> QWidget:
+        """Construit l'onglet des outils natifs (ex-palette)."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
 
         self._tool_button_group = QButtonGroup(self)
         self._tool_button_group.setExclusive(True)
 
-        # Boutons pour chaque CellType (sauf EMPTY qui n'est pas un outil)
         tools: list[tuple[CellType | str, str, str]] = [
             (CellType.GROUND,      CELL_EMOJIS[CellType.GROUND],      CELL_LABELS[CellType.GROUND]),
             (CellType.WALL,        CELL_EMOJIS[CellType.WALL],        CELL_LABELS[CellType.WALL]),
@@ -163,46 +188,92 @@ class MainWindow(QMainWindow):
             btn = QToolButton()
             btn.setText(f"{emoji}\n{label}")
             btn.setCheckable(True)
-            btn.setFixedSize(108, 52)
+            btn.setFixedSize(116, 48)
             btn.setToolTip(label)
             btn.setStyleSheet(self._tool_btn_style(active=False))
             btn.setProperty("tool_id", tool_id)
-
-            # Ground sélectionné par défaut
             if tool_id == CellType.GROUND:
                 btn.setChecked(True)
                 btn.setStyleSheet(self._tool_btn_style(active=True))
-
             btn.toggled.connect(lambda checked, b=btn: self._on_tool_toggled(checked, b))
             self._tool_button_group.addButton(btn)
             layout.addWidget(btn)
 
         layout.addStretch()
 
-        # --- Boutons sprite personnalise ---
-        sep_sprite = QFrame()
-        sep_sprite.setFrameShape(QFrame.Shape.HLine)
-        sep_sprite.setFrameShadow(QFrame.Shadow.Sunken)
-        sep_sprite.setStyleSheet("color: #555555;")
-        layout.addWidget(sep_sprite)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sep.setStyleSheet("color: #555555;")
+        layout.addWidget(sep)
 
-        btn_sprite = QPushButton("🖼 Sprite…")
-        btn_sprite.setFixedSize(108, 30)
-        btn_sprite.setToolTip(
-            "Assigner une image personnalisee a l'outil actif"
-        )
+        btn_sprite = QPushButton("🖼 Sprite...")
+        btn_sprite.setFixedSize(116, 28)
+        btn_sprite.setToolTip("Assigner un sprite personnalisé à l'outil actif")
         btn_sprite.setStyleSheet(self._action_btn_style("#5a4a7a"))
         btn_sprite.clicked.connect(self._on_set_sprite)
         layout.addWidget(btn_sprite)
 
-        btn_clear_sprite = QPushButton("✕ Sprite")
-        btn_clear_sprite.setFixedSize(108, 30)
-        btn_clear_sprite.setToolTip("Effacer le sprite personnalise de l'outil actif")
+        btn_clear_sprite = QPushButton("X Sprite")
+        btn_clear_sprite.setFixedSize(116, 28)
+        btn_clear_sprite.setToolTip("Effacer le sprite de l'outil actif")
         btn_clear_sprite.setStyleSheet(self._action_btn_style("#5a3a3a"))
         btn_clear_sprite.clicked.connect(self._on_clear_sprite)
         layout.addWidget(btn_clear_sprite)
 
-        return panel
+        return tab
+
+    def _build_custom_tools_tab(self) -> QWidget:
+        """Construit l'onglet des outils custom."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+
+        lbl = QLabel("Outils personnalisés")
+        lbl.setStyleSheet("color: #aaaaaa; font-size: 10px; font-weight: bold;")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl)
+
+        # Zone scrollable pour les boutons custom
+        from PyQt6.QtWidgets import QScrollArea
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none; background: transparent;")
+        self._custom_tools_container = QWidget()
+        self._custom_tools_layout = QVBoxLayout(self._custom_tools_container)
+        self._custom_tools_layout.setContentsMargins(0, 0, 0, 0)
+        self._custom_tools_layout.setSpacing(3)
+        self._custom_tools_layout.addStretch()
+        scroll.setWidget(self._custom_tools_container)
+        layout.addWidget(scroll, stretch=1)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep)
+
+        btn_new = QPushButton("+ Nouvel outil")
+        btn_new.setFixedHeight(28)
+        btn_new.setStyleSheet(self._action_btn_style("#4a6fa5"))
+        btn_new.clicked.connect(self._on_new_custom_type)
+        layout.addWidget(btn_new)
+
+        btn_override = QPushButton("Remplacer icone")
+        btn_override.setFixedHeight(28)
+        btn_override.setStyleSheet(self._action_btn_style("#5a5a20"))
+        btn_override.clicked.connect(self._on_override_icon)
+        layout.addWidget(btn_override)
+
+        btn_manage = QPushButton("Gérer...")
+        btn_manage.setFixedHeight(28)
+        btn_manage.setStyleSheet(self._action_btn_style("#555555"))
+        btn_manage.clicked.connect(self._on_manage_icons)
+        layout.addWidget(btn_manage)
+
+        # Remplir avec les customs existants
+        self._refresh_custom_tools()
+        return tab
 
     def _build_floor_toolbar(self) -> QWidget:
         """Construit la barre d'outils du haut -- deux lignes.
@@ -1007,7 +1078,58 @@ class MainWindow(QMainWindow):
         """Affiche une alerte discrete en cas d'echec autosave."""
         self.status_bar.showMessage(f"Autosave echoue : {error}", 6000)
 
-    def _refresh_floor_selector(self) -> None:
+    def _refresh_custom_tools(self) -> None:
+        """Recrée les boutons d'outils custom dans l'onglet Custom."""
+        from core.grid import CUSTOM_REGISTRY
+        # Vider le layout (sauf le stretch final)
+        while self._custom_tools_layout.count() > 1:
+            item = self._custom_tools_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for defn in CUSTOM_REGISTRY.all_custom():
+            btn = QToolButton()
+            btn.setText(f"{defn.icon_unicode}\n{defn.label}")
+            btn.setCheckable(True)
+            btn.setFixedSize(116, 44)
+            btn.setToolTip(defn.label)
+            btn.setStyleSheet(self._tool_btn_style(active=False))
+            btn.setProperty("tool_id", defn.type_id)
+            btn.toggled.connect(lambda checked, b=btn: self._on_tool_toggled(checked, b))
+            self._tool_button_group.addButton(btn)
+            self._custom_tools_layout.insertWidget(
+                self._custom_tools_layout.count() - 1, btn
+            )
+
+    @pyqtSlot()
+    def _on_new_custom_type(self) -> None:
+        dlg = NewCustomTypeDialog(parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            self._prefs.save_custom_icons()
+            self._refresh_custom_tools()
+            self.editor_view.refresh()
+            self._update_status("Nouvel outil custom créé.")
+
+    @pyqtSlot()
+    def _on_override_icon(self) -> None:
+        dlg = OverrideIconDialog(parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            self._prefs.save_custom_icons()
+            self.editor_view.refresh()
+            self._update_status("Remplacement d'icone appliqué.")
+
+    @pyqtSlot()
+    def _on_manage_icons(self) -> None:
+        dlg = ManageIconsDialog(parent=self)
+        dlg.icons_changed.connect(self._on_icons_changed)
+        dlg.exec()
+
+    @pyqtSlot()
+    def _on_icons_changed(self) -> None:
+        self._prefs.save_custom_icons()
+        self._refresh_custom_tools()
+        self.editor_view.refresh()
+        self._update_status("Icones mises à jour.")
         """Resynchronise le sélecteur d'étages avec le modèle."""
         self.floor_selector.blockSignals(True)
         self.floor_selector.clear()
