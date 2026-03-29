@@ -69,8 +69,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; \
     Description: "Creer un raccourci sur le Bureau"; \
-    GroupDescription: "Raccourcis :"; \
-    Flags: checked
+    GroupDescription: "Raccourcis :"
 
 ; ---------------------------------------------------------------------------
 ; Fichiers a installer
